@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "es-ES"
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "**/*.kt"
+      instructions: |
+        - Toda consulta y endpoint debe filtrar por barbershop_id del usuario autenticado.
+          Señala cualquier acceso por id sin validar la barbería (BOLA/IDOR).
+        - Fechas: guardar en UTC (timestamptz / Instant), mostrar en America/Bogota.
+          Señala LocalDateTime usado para instantes reales.
+        - Dinero en COP como Long, nunca Double ni Float.
+        - Nunca registrar en logs teléfonos, nombres ni llaves de Wompi.
+        - Webhooks de Wompi: validar checksum y consultar estado antes de confirmar.
+    - path: "src/main/resources/db/migration/**"
+      instructions: |
+        - Nunca modificar una migración ya aplicada; crear una nueva.
+        - Toda tabla nueva lleva barbershop_id e índice, salvo barbershop.
+chat:
+  auto_reply: true
