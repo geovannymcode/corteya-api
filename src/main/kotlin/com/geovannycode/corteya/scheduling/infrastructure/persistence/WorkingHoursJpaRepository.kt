@@ -1,0 +1,24 @@
+package com.geovannycode.corteya.scheduling.infrastructure.persistence
+
+import com.geovannycode.corteya.scheduling.application.WorkingHoursRepository
+import java.util.UUID
+import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.Repository
+import org.springframework.stereotype.Component
+
+// Deliberately does not extend CrudRepository/JpaRepository: no unscoped operations.
+internal interface WorkingHoursJpaRepository : Repository<WorkingHoursEntity, UUID> {
+    fun findByBarbershopIdAndId(barbershopId: UUID, id: UUID): WorkingHoursEntity?
+    fun findAllByBarbershopId(barbershopId: UUID): List<WorkingHoursEntity>
+}
+
+@Component
+internal class WorkingHoursPersistenceAdapter(
+    private val repository: WorkingHoursJpaRepository,
+) : WorkingHoursRepository {
+    override fun findById(barbershopId: UUID, id: UUID) =
+        repository.findByBarbershopIdAndId(barbershopId, id)?.toDomain()
+
+    override fun findAll(barbershopId: UUID) =
+        repository.findAllByBarbershopId(barbershopId).map { it.toDomain() }
+}
