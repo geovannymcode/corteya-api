@@ -310,3 +310,7 @@ Informe: `build/reports/tests/test/index.html`. JAR ejecutable: `build/libs/cort
 - Política y limpieza de retención de desafíos OTP y credenciales revocadas.
 - Cancelación, asistencia, notificaciones y recordatorios.
 - Panel admin Vaadin, app Flutter y entrada por QR/link.
+- Fase 10 (despliegue): configurar `forward-headers-strategy=native` +
+  `server.tomcat.remoteip.internal-proxies` con el rango del proxy del proveedor;
+  nunca confiar en `X-Forwarded-For` arbitrario. Hasta definir ese proxy,
+  `server.forward-headers-strategy` permanece en `none` (modo directo seguro).
