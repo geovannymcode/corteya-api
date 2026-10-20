@@ -1,5 +1,7 @@
 package com.geovannycode.corteya.catalog
 
+import com.geovannycode.corteya.catalog.internal.BarberEntity
+import com.geovannycode.corteya.catalog.internal.BarberRepository
 import java.util.UUID
 
 data class BarberDetails(val id: UUID = UUID.randomUUID(), val barbershopId: UUID, val name: String, val bio: String? = null, val photoUrl: String? = null, val active: Boolean = true)

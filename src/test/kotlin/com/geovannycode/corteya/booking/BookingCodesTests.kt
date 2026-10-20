@@ -1,8 +1,8 @@
 package com.geovannycode.corteya.booking
 
-import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
 
 class BookingCodesTests {
     @Test

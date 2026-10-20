@@ -2,18 +2,15 @@ package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.barbershop.BarbershopService
 import com.geovannycode.corteya.barbershop.ShopDetails
-import com.geovannycode.corteya.catalog.BarberDirectoryService
+import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.catalog.BarberAssignmentService
-import com.geovannycode.corteya.catalog.ServiceCatalogService
 import com.geovannycode.corteya.catalog.BarberDetails
+import com.geovannycode.corteya.catalog.BarberDirectoryService
+import com.geovannycode.corteya.catalog.ServiceCatalogService
 import com.geovannycode.corteya.catalog.ServiceDetails
+import com.geovannycode.corteya.scheduling.TimeInterval
 import com.geovannycode.corteya.scheduling.TimeOffService
 import com.geovannycode.corteya.scheduling.WorkingHoursService
-import com.geovannycode.corteya.booking.BookingRules
-import com.geovannycode.corteya.booking.SlotGenerator
-import com.geovannycode.corteya.booking.Slots
-import com.geovannycode.corteya.scheduling.TimeInterval
-import com.geovannycode.corteya.booking.OccupyingAppointment
 import com.geovannycode.corteya.scheduling.WorkingSchedule
 import java.time.Clock
 import java.time.Instant

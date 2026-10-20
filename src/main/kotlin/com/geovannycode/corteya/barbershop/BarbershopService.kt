@@ -1,5 +1,7 @@
 package com.geovannycode.corteya.barbershop
 
+import com.geovannycode.corteya.barbershop.internal.BarbershopEntity
+import com.geovannycode.corteya.barbershop.internal.BarbershopRepository
 import java.util.UUID
 import org.springframework.stereotype.Service
 

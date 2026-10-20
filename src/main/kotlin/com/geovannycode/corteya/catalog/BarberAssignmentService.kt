@@ -1,5 +1,7 @@
 package com.geovannycode.corteya.catalog
 
+import com.geovannycode.corteya.catalog.internal.BarberServiceEntity
+import com.geovannycode.corteya.catalog.internal.BarberServiceRepository
 import java.util.UUID
 
 data class BarberAssignment(val barbershopId: UUID, val barberId: UUID, val serviceId: UUID)

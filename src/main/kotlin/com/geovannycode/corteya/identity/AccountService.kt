@@ -1,5 +1,6 @@
 package com.geovannycode.corteya.identity
 
+import com.geovannycode.corteya.identity.internal.IdentityRepository
 import java.time.Clock
 import java.util.UUID
 import org.springframework.stereotype.Service

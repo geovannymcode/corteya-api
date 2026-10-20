@@ -1,5 +1,7 @@
 package com.geovannycode.corteya.catalog
 
+import com.geovannycode.corteya.catalog.internal.ServiceEntity
+import com.geovannycode.corteya.catalog.internal.ServiceRepository
 import java.util.UUID
 
 data class ServiceDetails(val id: UUID = UUID.randomUUID(), val barbershopId: UUID, val name: String, val description: String? = null, val durationMinutes: Int, val priceCop: Long, val active: Boolean = true)

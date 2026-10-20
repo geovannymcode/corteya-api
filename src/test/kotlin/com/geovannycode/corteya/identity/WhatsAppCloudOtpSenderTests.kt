@@ -1,8 +1,8 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.AuthFailure
-import com.geovannycode.corteya.identity.WhatsAppCloudOtpSender
-import com.geovannycode.corteya.identity.WhatsAppTemplate
+import com.geovannycode.corteya.identity.internal.WhatsAppCloudOtpSender
+import com.geovannycode.corteya.identity.internal.WhatsAppTemplate
+import kotlin.test.*
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
@@ -14,7 +14,6 @@ import org.springframework.test.web.client.match.MockRestRequestMatchers.*
 import org.springframework.test.web.client.response.MockRestResponseCreators.*
 import org.springframework.web.client.RestClient
 import tools.jackson.databind.json.JsonMapper
-import kotlin.test.*
 
 class WhatsAppCloudOtpSenderTests {
     @Test

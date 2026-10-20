@@ -2,25 +2,23 @@ package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.barbershop.BarbershopService as BarbershopRepository
 import com.geovannycode.corteya.barbershop.ShopDetails as Barbershop
-import com.geovannycode.corteya.catalog.BarberDirectoryService as BarberRepository
-import com.geovannycode.corteya.catalog.BarberAssignmentService as BarberServiceRepository
-import com.geovannycode.corteya.catalog.ServiceCatalogService as ServiceRepository
-import com.geovannycode.corteya.catalog.BarberDetails as Barber
+import com.geovannycode.corteya.booking.internal.AppointmentRepository
+import com.geovannycode.corteya.booking.internal.AppointmentRepository as BookingStore
 import com.geovannycode.corteya.catalog.BarberAssignment as BarberService
+import com.geovannycode.corteya.catalog.BarberAssignmentService as BarberServiceRepository
+import com.geovannycode.corteya.catalog.BarberDetails as Barber
+import com.geovannycode.corteya.catalog.BarberDirectoryService as BarberRepository
+import com.geovannycode.corteya.catalog.ServiceCatalogService as ServiceRepository
 import com.geovannycode.corteya.catalog.ServiceDetails as Service
-import com.geovannycode.corteya.booking.AvailabilityService
-import com.geovannycode.corteya.booking.BookingSelection
-import com.geovannycode.corteya.booking.AppointmentRepository as BookingStore
-import com.geovannycode.corteya.booking.AppointmentStatus
+import com.geovannycode.corteya.scheduling.*
+import com.geovannycode.corteya.scheduling.BlockedTime as TimeOff
 import com.geovannycode.corteya.scheduling.TimeOffService as TimeOffRepository
 import com.geovannycode.corteya.scheduling.WorkingHoursService as WorkingHoursRepository
-import com.geovannycode.corteya.scheduling.*
 import com.geovannycode.corteya.scheduling.WorkingSchedule as WorkingHours
-import com.geovannycode.corteya.scheduling.BlockedTime as TimeOff
 import java.time.*
+import kotlin.test.assertEquals
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.*
-import kotlin.test.assertEquals
 
 class AvailabilityServiceTests {
     private val shops = mock(BarbershopRepository::class.java)

@@ -1,9 +1,8 @@
 package com.geovannycode.corteya.barbershop
 
-import com.geovannycode.corteya.barbershop.ShopDetails
 import com.geovannycode.corteya.catalog.BarberDirectoryService
-import com.geovannycode.corteya.scheduling.WorkingHoursService
 import com.geovannycode.corteya.scheduling.TimeInterval
+import com.geovannycode.corteya.scheduling.WorkingHoursService
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalTime

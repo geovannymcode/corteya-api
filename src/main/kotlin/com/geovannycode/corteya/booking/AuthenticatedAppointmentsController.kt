@@ -1,8 +1,10 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.AvailabilityService
-import com.geovannycode.corteya.booking.AppointmentRepository
-import com.geovannycode.corteya.booking.AppointmentEntity
+import com.geovannycode.corteya.booking.dto.AgendaAppointmentResponse
+import com.geovannycode.corteya.booking.dto.AppointmentStatusResponse
+import com.geovannycode.corteya.booking.dto.MyAppointmentsResponse
+import com.geovannycode.corteya.booking.internal.AppointmentEntity
+import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.identity.AuthorizationPolicy
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
@@ -21,9 +23,6 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-
-data class MyAppointmentsResponse(val upcoming: List<AppointmentStatusResponse>, val past: List<AppointmentStatusResponse>)
-data class AgendaAppointmentResponse(val barberId: UUID, val serviceId: UUID, val appointment: AppointmentStatusResponse)
 
 @RestController
 @RequestMapping("/api/v1")

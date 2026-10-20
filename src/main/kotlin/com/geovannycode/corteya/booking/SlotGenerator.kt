@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.AppointmentStatus
 import com.geovannycode.corteya.scheduling.TimeInterval
 import com.geovannycode.corteya.scheduling.WorkingSchedule as WorkingHours
 import java.time.Instant

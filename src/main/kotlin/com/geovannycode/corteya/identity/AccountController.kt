@@ -1,15 +1,11 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.AccountService
-import com.geovannycode.corteya.identity.AuthorizationPolicy
-import com.geovannycode.corteya.identity.IdentityRepository
-import com.geovannycode.corteya.identity.PhoneNumbers
-import com.geovannycode.corteya.identity.StaffMembership
+import com.geovannycode.corteya.identity.dto.MeResponse
+import com.geovannycode.corteya.identity.dto.RenameBody
+import com.geovannycode.corteya.identity.internal.IdentityRepository
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
 import jakarta.validation.Valid
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Size
 import java.util.UUID
 import org.springframework.http.CacheControl
 import org.springframework.http.ResponseEntity
@@ -21,13 +17,6 @@ import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-
-data class RenameBody(@field:NotBlank @field:Size(max = 150) val name: String) {
-    override fun toString(): String = "RenameBody([redacted])"
-}
-data class MeResponse(val id: UUID, val phone: String?, val name: String?, val platformAdmin: Boolean, val memberships: List<StaffMembership>) {
-    override fun toString(): String = "MeResponse(id=$id, phone=${phone?.let(PhoneNumbers::mask)}, name=[redacted])"
-}
 
 @RestController
 @RequestMapping("/api/v1/me")

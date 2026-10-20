@@ -1,9 +1,9 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.AppointmentEntity
-import com.geovannycode.corteya.booking.BookingCodes
-import com.geovannycode.corteya.identity.AuthorizationPolicy
+import com.geovannycode.corteya.booking.internal.AppointmentEntity
+import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.customer.CustomerService
+import com.geovannycode.corteya.identity.AuthorizationPolicy
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId

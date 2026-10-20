@@ -1,34 +1,25 @@
 package com.geovannycode.corteya
 
-import com.geovannycode.corteya.barbershop.BarbershopRepository
-import com.geovannycode.corteya.barbershop.BarbershopEntity
-import com.geovannycode.corteya.booking.AppointmentRepository
+import com.geovannycode.corteya.barbershop.internal.BarbershopEntity
+import com.geovannycode.corteya.barbershop.internal.BarbershopRepository
 import com.geovannycode.corteya.booking.AppointmentStatus
-import com.geovannycode.corteya.booking.AppointmentEntity
-import com.geovannycode.corteya.catalog.BarberRepository
-import com.geovannycode.corteya.catalog.BarberServiceRepository
-import com.geovannycode.corteya.catalog.ServiceRepository
-import com.geovannycode.corteya.catalog.BarberEntity
-import com.geovannycode.corteya.catalog.BarberServiceEntity
-import com.geovannycode.corteya.catalog.ServiceEntity
-import com.geovannycode.corteya.customer.CustomerRepository
-import com.geovannycode.corteya.customer.CustomerEntity
-import com.geovannycode.corteya.scheduling.TimeOffRepository
-import com.geovannycode.corteya.scheduling.WorkingHoursRepository
-import com.geovannycode.corteya.scheduling.TimeOffEntity
-import com.geovannycode.corteya.scheduling.WorkingHoursEntity
+import com.geovannycode.corteya.booking.internal.AppointmentEntity
+import com.geovannycode.corteya.booking.internal.AppointmentRepository
+import com.geovannycode.corteya.catalog.internal.BarberEntity
+import com.geovannycode.corteya.catalog.internal.BarberRepository
+import com.geovannycode.corteya.catalog.internal.BarberServiceEntity
+import com.geovannycode.corteya.catalog.internal.BarberServiceRepository
+import com.geovannycode.corteya.catalog.internal.ServiceEntity
+import com.geovannycode.corteya.catalog.internal.ServiceRepository
+import com.geovannycode.corteya.customer.internal.CustomerEntity
+import com.geovannycode.corteya.customer.internal.CustomerRepository
+import com.geovannycode.corteya.scheduling.internal.TimeOffEntity
+import com.geovannycode.corteya.scheduling.internal.TimeOffRepository
+import com.geovannycode.corteya.scheduling.internal.WorkingHoursEntity
+import com.geovannycode.corteya.scheduling.internal.WorkingHoursRepository
 import jakarta.persistence.EntityManager
 import jakarta.persistence.EntityManagerFactory
 import jakarta.persistence.OptimisticLockException
-import org.flywaydb.core.Flyway
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.EnumSource
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.dao.DataIntegrityViolationException
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.transaction.support.TransactionTemplate
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -50,6 +41,15 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.flywaydb.core.Flyway
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.transaction.support.TransactionTemplate
 
 class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     @Autowired

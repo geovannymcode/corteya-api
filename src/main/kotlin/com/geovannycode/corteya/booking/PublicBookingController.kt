@@ -1,11 +1,14 @@
 package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.barbershop.ShopStatusService
-import com.geovannycode.corteya.booking.AvailabilityService
-import com.geovannycode.corteya.booking.BookingFailure
-import com.geovannycode.corteya.booking.AppointmentRepository
-import com.geovannycode.corteya.booking.CreateAppointment
-import com.geovannycode.corteya.booking.CreateAppointmentCommand
+import com.geovannycode.corteya.booking.dto.AppointmentStatusResponse
+import com.geovannycode.corteya.booking.dto.AvailabilityResponse
+import com.geovannycode.corteya.booking.dto.BarberResponse
+import com.geovannycode.corteya.booking.dto.BarbershopResponse
+import com.geovannycode.corteya.booking.dto.CreateAppointmentRequest
+import com.geovannycode.corteya.booking.dto.CreatedAppointmentResponse
+import com.geovannycode.corteya.booking.dto.ServiceResponse
+import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.identity.AuthorizationPolicy
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.media.Content

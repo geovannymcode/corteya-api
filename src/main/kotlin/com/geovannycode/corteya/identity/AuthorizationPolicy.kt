@@ -2,8 +2,7 @@ package com.geovannycode.corteya.identity
 
 import com.geovannycode.corteya.barbershop.BarbershopService
 import com.geovannycode.corteya.catalog.BarberDirectoryService
-import com.geovannycode.corteya.identity.AppUser
-import com.geovannycode.corteya.identity.StaffRole
+import com.geovannycode.corteya.identity.internal.IdentityRepository
 import java.util.UUID
 import org.springframework.stereotype.Component
 

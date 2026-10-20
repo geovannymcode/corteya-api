@@ -1,14 +1,13 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.AppointmentStatus
-import com.geovannycode.corteya.scheduling.WorkingSchedule as WorkingHours
 import com.geovannycode.corteya.scheduling.TimeInterval
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.EnumSource
+import com.geovannycode.corteya.scheduling.WorkingSchedule as WorkingHours
 import java.time.*
 import java.util.UUID
 import kotlin.test.*
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 
 class SlotGeneratorTests {
     private val date = LocalDate.of(2026, 10, 19) // Monday

@@ -1,13 +1,30 @@
 package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.PostgresIntegrationTest
-import com.geovannycode.corteya.identity.AccessTokens
-import com.geovannycode.corteya.identity.IdentityRepository as IdentityStore
-import com.geovannycode.corteya.booking.PaymentReferences
-import com.geovannycode.corteya.booking.BookingCodes
-import com.geovannycode.corteya.booking.HoldExpirationJob
-import org.junit.jupiter.api.BeforeEach
+import com.geovannycode.corteya.booking.dto.CreatedAppointmentResponse
+import com.geovannycode.corteya.booking.internal.HoldExpirationJob
+import com.geovannycode.corteya.identity.internal.AccessTokens
+import com.geovannycode.corteya.identity.internal.IdentityRepository
+import com.geovannycode.corteya.identity.internal.IdentityRepository as IdentityStore
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.sql.Timestamp
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.test.*
 import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
@@ -17,23 +34,6 @@ import org.springframework.context.annotation.Primary
 import org.springframework.jdbc.core.JdbcTemplate
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneId
-import java.time.ZoneOffset
-import java.sql.Timestamp
-import java.util.UUID
-import java.util.concurrent.Callable
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.test.*
 
 class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
     @Autowired private lateinit var jdbc: JdbcTemplate

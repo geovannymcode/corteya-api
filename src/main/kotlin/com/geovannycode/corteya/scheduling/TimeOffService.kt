@@ -1,5 +1,6 @@
 package com.geovannycode.corteya.scheduling
 
+import com.geovannycode.corteya.scheduling.internal.TimeOffRepository
 import java.time.Instant
 import java.util.UUID
 import org.springframework.stereotype.Service

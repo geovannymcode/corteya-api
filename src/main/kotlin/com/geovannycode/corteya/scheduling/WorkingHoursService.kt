@@ -1,5 +1,7 @@
 package com.geovannycode.corteya.scheduling
 
+import com.geovannycode.corteya.scheduling.internal.WorkingHoursEntity
+import com.geovannycode.corteya.scheduling.internal.WorkingHoursRepository
 import java.time.LocalTime
 import java.util.UUID
 import org.springframework.stereotype.Service

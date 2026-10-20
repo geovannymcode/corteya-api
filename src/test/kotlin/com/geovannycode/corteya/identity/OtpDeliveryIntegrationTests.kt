@@ -4,7 +4,6 @@ import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.RecordingOtpSender
 import com.geovannycode.corteya.booking.FixedBookingTestConfiguration
 import com.geovannycode.corteya.booking.MutableTestClock
-import com.geovannycode.corteya.identity.AuthService
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -13,6 +12,7 @@ import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.test.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -20,7 +20,6 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.transaction.support.TransactionSynchronizationManager
-import kotlin.test.*
 
 class OtpDeliveryIntegrationTests : PostgresIntegrationTest(web = true) {
     @Autowired private lateinit var dataSource: com.zaxxer.hikari.HikariDataSource

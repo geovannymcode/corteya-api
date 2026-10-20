@@ -1,7 +1,10 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.AppUser
-import com.geovannycode.corteya.identity.PhoneNumbers
+import com.geovannycode.corteya.identity.dto.TokenPair
+import com.geovannycode.corteya.identity.internal.AccessTokens
+import com.geovannycode.corteya.identity.internal.IdentityRepository
+import com.geovannycode.corteya.identity.internal.OtpReservationService
+import com.geovannycode.corteya.identity.internal.SecretDigests
 import java.time.Clock
 import java.util.UUID
 import org.springframework.stereotype.Service

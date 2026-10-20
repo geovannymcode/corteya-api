@@ -1,30 +1,19 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.AuthService
-import com.geovannycode.corteya.identity.TokenPair
-import com.geovannycode.corteya.identity.PhoneNumbers
+import com.geovannycode.corteya.identity.dto.OtpRequestResponse
+import com.geovannycode.corteya.identity.dto.RefreshBody
+import com.geovannycode.corteya.identity.dto.RequestOtpBody
+import com.geovannycode.corteya.identity.dto.TokenPair
+import com.geovannycode.corteya.identity.dto.VerifyOtpBody
 import io.swagger.v3.oas.annotations.Operation
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Size
 import org.springframework.http.CacheControl
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
-
-data class RequestOtpBody(@field:NotBlank @field:Size(max = 16) val phone: String) {
-    override fun toString(): String = "RequestOtpBody(phone=${PhoneNumbers.mask(phone)})"
-}
-data class VerifyOtpBody(@field:NotBlank @field:Size(max = 16) val phone: String, @field:NotBlank @field:Size(max = 64) val code: String) {
-    override fun toString(): String = "VerifyOtpBody(phone=${PhoneNumbers.mask(phone)}, code=[redacted])"
-}
-data class RefreshBody(@field:NotBlank @field:Size(max = 128) val refreshToken: String) {
-    override fun toString(): String = "RefreshBody([redacted])"
-}
-data class OtpRequestResponse(val message: String = "Si el número es válido, recibirás un código de verificación")
 
 @RestController
 @RequestMapping("/api/v1/auth")
