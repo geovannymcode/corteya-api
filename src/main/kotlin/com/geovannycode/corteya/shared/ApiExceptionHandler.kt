@@ -1,7 +1,5 @@
 package com.geovannycode.corteya.shared
 
-import com.geovannycode.corteya.booking.BookingFailure
-import com.geovannycode.corteya.identity.AuthFailure
 import java.sql.SQLException
 import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
@@ -21,11 +19,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 class ApiExceptionHandler {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    @ExceptionHandler(AuthFailure::class)
-    fun auth(failure: AuthFailure): ProblemDetail = problem(failure.status, failure.message)
-
-    @ExceptionHandler(BookingFailure::class)
-    fun booking(failure: BookingFailure): ProblemDetail = problem(failure.status, failure.message)
+    @ExceptionHandler(ApiFailure::class)
+    fun known(failure: ApiFailure): ProblemDetail = problem(failure.status, failure.message)
 
     @ExceptionHandler(PessimisticLockingFailureException::class)
     fun contention(): ProblemDetail = problem(409, "Ese horario acaba de ser tomado, elige otro")

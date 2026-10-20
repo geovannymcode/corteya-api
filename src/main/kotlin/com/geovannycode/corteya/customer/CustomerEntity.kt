@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.customer
 
-import com.geovannycode.corteya.customer.Customer
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -36,14 +35,4 @@ data class CustomerEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
-) {
-    fun toDomain(): Customer = Customer(
-        id = id,
-        barbershopId = barbershopId,
-        phone = phone,
-        userId = userId,
-        name = name,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-}
+)

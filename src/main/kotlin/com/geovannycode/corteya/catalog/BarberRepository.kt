@@ -1,10 +1,17 @@
 package com.geovannycode.corteya.catalog
 
-import com.geovannycode.corteya.catalog.Barber
+import jakarta.persistence.EntityManager
 import java.util.UUID
+import org.springframework.stereotype.Repository
 
-/** Tenant-scoped read port. Mutation use cases belong to subsequent phases. */
-interface BarberRepository {
-    fun findById(barbershopId: UUID, id: UUID): Barber?
-    fun findAll(barbershopId: UUID): List<Barber>
+/** Concrete, tenant-scoped persistence. No unscoped CRUD methods. */
+@Repository
+class BarberRepository(private val entityManager: EntityManager) {
+    fun findById(barbershopId: UUID, id: UUID): BarberEntity? = entityManager
+        .createQuery("select e from BarberEntity e where e.barbershopId = :barbershopId and e.id = :id", BarberEntity::class.java)
+        .setParameter("barbershopId", barbershopId).setParameter("id", id).resultList.singleOrNull()
+
+    fun findAll(barbershopId: UUID): List<BarberEntity> = entityManager
+        .createQuery("select e from BarberEntity e where e.barbershopId = :barbershopId", BarberEntity::class.java)
+        .setParameter("barbershopId", barbershopId).resultList
 }

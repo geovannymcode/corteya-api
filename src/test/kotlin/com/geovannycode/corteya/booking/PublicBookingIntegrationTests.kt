@@ -2,7 +2,7 @@ package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.identity.AccessTokens
-import com.geovannycode.corteya.identity.IdentityStore
+import com.geovannycode.corteya.identity.IdentityRepository as IdentityStore
 import com.geovannycode.corteya.booking.PaymentReferences
 import com.geovannycode.corteya.booking.BookingCodes
 import com.geovannycode.corteya.booking.HoldExpirationJob
@@ -396,7 +396,7 @@ class MutableTestClock : Clock() {
     override fun withZone(zone: ZoneId): Clock = Clock.fixed(instant(), zone)
 }
 
-class ControlledReferences : PaymentReferences {
+class ControlledReferences : PaymentReferences() {
     val queue = ConcurrentLinkedQueue<String>()
     override fun next(): String = queue.poll() ?: BookingCodes.paymentReference()
 }

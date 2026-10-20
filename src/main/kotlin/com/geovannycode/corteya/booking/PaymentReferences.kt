@@ -1,6 +1,8 @@
 package com.geovannycode.corteya.booking
 
-/** Replaceable source for deterministic collision tests. */
-interface PaymentReferences {
-    fun next(): String
+import org.springframework.stereotype.Component
+
+@Component
+open class PaymentReferences {
+    open fun next(): String = BookingCodes.paymentReference()
 }

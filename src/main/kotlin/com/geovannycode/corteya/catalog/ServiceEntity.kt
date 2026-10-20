@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.catalog
 
-import com.geovannycode.corteya.catalog.Service
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -42,16 +41,4 @@ data class ServiceEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
-) {
-    fun toDomain(): Service = Service(
-        id = id,
-        barbershopId = barbershopId,
-        name = name,
-        description = description,
-        durationMinutes = durationMinutes,
-        priceCop = priceCop,
-        active = active,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-}
+)

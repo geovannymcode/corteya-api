@@ -1,20 +1,20 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.barbershop.BarbershopRepository
-import com.geovannycode.corteya.barbershop.Barbershop
-import com.geovannycode.corteya.catalog.BarberRepository
-import com.geovannycode.corteya.catalog.BarberServiceRepository
-import com.geovannycode.corteya.catalog.ServiceRepository
-import com.geovannycode.corteya.catalog.Barber
-import com.geovannycode.corteya.catalog.Service
-import com.geovannycode.corteya.scheduling.TimeOffRepository
-import com.geovannycode.corteya.scheduling.WorkingHoursRepository
-import com.geovannycode.corteya.scheduling.BookingRules
-import com.geovannycode.corteya.scheduling.SlotGenerator
-import com.geovannycode.corteya.scheduling.Slots
+import com.geovannycode.corteya.barbershop.BarbershopService
+import com.geovannycode.corteya.barbershop.ShopDetails
+import com.geovannycode.corteya.catalog.BarberDirectoryService
+import com.geovannycode.corteya.catalog.BarberAssignmentService
+import com.geovannycode.corteya.catalog.ServiceCatalogService
+import com.geovannycode.corteya.catalog.BarberDetails
+import com.geovannycode.corteya.catalog.ServiceDetails
+import com.geovannycode.corteya.scheduling.TimeOffService
+import com.geovannycode.corteya.scheduling.WorkingHoursService
+import com.geovannycode.corteya.booking.BookingRules
+import com.geovannycode.corteya.booking.SlotGenerator
+import com.geovannycode.corteya.booking.Slots
 import com.geovannycode.corteya.scheduling.TimeInterval
-import com.geovannycode.corteya.scheduling.OccupyingAppointment
-import com.geovannycode.corteya.scheduling.WorkingHours
+import com.geovannycode.corteya.booking.OccupyingAppointment
+import com.geovannycode.corteya.scheduling.WorkingSchedule
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -22,23 +22,23 @@ import java.time.ZoneId
 import java.util.UUID
 import org.springframework.stereotype.Component
 
-data class BookingSelection(val shop: Barbershop, val barber: Barber, val service: Service)
-data class BarberAvailability(val barber: Barber, val nextAvailableAt: Instant?)
+data class BookingSelection(val shop: ShopDetails, val barber: BarberDetails, val service: ServiceDetails)
+data class BarberAvailability(val barber: BarberDetails, val nextAvailableAt: Instant?)
 
 @Component
 class AvailabilityService(
-    private val shops: BarbershopRepository,
-    private val barbers: BarberRepository,
-    private val services: ServiceRepository,
-    private val barberServices: BarberServiceRepository,
-    private val hours: WorkingHoursRepository,
-    private val timeOff: TimeOffRepository,
-    private val bookings: BookingStore,
+    private val shops: BarbershopService,
+    private val barbers: BarberDirectoryService,
+    private val services: ServiceCatalogService,
+    private val barberServices: BarberAssignmentService,
+    private val hours: WorkingHoursService,
+    private val timeOff: TimeOffService,
+    private val bookings: AppointmentRepository,
     private val clock: Clock,
 ) {
-    fun shop(slug: String): Barbershop = shops.findBySlug(slug) ?: BookingFailure.notFound()
+    fun shop(slug: String): ShopDetails = shops.findBySlug(slug) ?: BookingFailure.notFound()
 
-    fun services(slug: String): List<Service> = services.findAll(shop(slug).id).filter { it.active }.sortedBy { it.name }
+    fun services(slug: String): List<ServiceDetails> = services.findAll(shop(slug).id).filter { it.active }.sortedBy { it.name }
 
     fun select(slug: String, barberId: UUID, serviceId: UUID): BookingSelection {
         val shop = shop(slug)
@@ -101,6 +101,6 @@ class AvailabilityService(
     }
 
     private data class AvailabilityInputs(
-        val hours: List<WorkingHours>, val timeOff: List<TimeInterval>, val appointments: List<OccupyingAppointment>,
+        val hours: List<WorkingSchedule>, val timeOff: List<TimeInterval>, val appointments: List<OccupyingAppointment>,
     )
 }

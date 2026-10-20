@@ -3,7 +3,7 @@ package com.geovannycode.corteya.booking
 import com.geovannycode.corteya.barbershop.ShopStatusService
 import com.geovannycode.corteya.booking.AvailabilityService
 import com.geovannycode.corteya.booking.BookingFailure
-import com.geovannycode.corteya.booking.BookingStore
+import com.geovannycode.corteya.booking.AppointmentRepository
 import com.geovannycode.corteya.booking.CreateAppointment
 import com.geovannycode.corteya.booking.CreateAppointmentCommand
 import com.geovannycode.corteya.identity.AuthorizationPolicy
@@ -44,7 +44,7 @@ class PublicBookingController(
     private val availability: AvailabilityService,
     private val shopStatus: ShopStatusService,
     private val createAppointment: CreateAppointment,
-    private val bookings: BookingStore,
+    private val bookings: AppointmentRepository,
     private val policy: AuthorizationPolicy,
 ) {
     @GetMapping("/barbershops/{slug}")
@@ -100,7 +100,7 @@ class PublicBookingController(
     fun appointment(@PathVariable publicToken: String, @AuthenticationPrincipal jwt: Jwt): ResponseEntity<AppointmentStatusResponse> {
         if (!publicToken.matches(Regex("[0-9a-f]{32}"))) BookingFailure.notFound()
         val result = bookings.findByPublicToken(publicToken) ?: BookingFailure.notFound()
-        policy.appointment(UUID.fromString(jwt.subject), result)
+        policy.appointment(UUID.fromString(jwt.subject), result.barbershopId, result.customerId)
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
             AppointmentStatusResponse(result.publicToken, result.status, result.startsAt.bogota(), result.endsAt.bogota(),
                 result.depositCop, result.paymentReference, result.holdExpiresAt?.bogota()),

@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.scheduling
 
-import com.geovannycode.corteya.scheduling.TimeOff
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -39,15 +38,4 @@ data class TimeOffEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
-) {
-    fun toDomain(): TimeOff = TimeOff(
-        id = id,
-        barbershopId = barbershopId,
-        barberId = barberId,
-        startsAt = startsAt,
-        endsAt = endsAt,
-        reason = reason,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-}
+)

@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.Appointment
 import com.geovannycode.corteya.booking.AppointmentSource
 import com.geovannycode.corteya.booking.AppointmentStatus
 import com.geovannycode.corteya.booking.BookingCodes
@@ -75,24 +74,4 @@ data class AppointmentEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
-) {
-    fun toDomain(): Appointment = Appointment(
-        id = id,
-        barbershopId = barbershopId,
-        barberId = barberId,
-        serviceId = serviceId,
-        customerId = customerId,
-        startsAt = startsAt,
-        endsAt = endsAt,
-        status = status,
-        priceCop = priceCop,
-        depositCop = depositCop,
-        paymentReference = paymentReference,
-        holdExpiresAt = holdExpiresAt,
-        source = source,
-        version = version,
-        publicToken = publicToken,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-}
+)

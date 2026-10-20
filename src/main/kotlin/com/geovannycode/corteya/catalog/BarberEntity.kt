@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.catalog
 
-import com.geovannycode.corteya.catalog.Barber
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -39,15 +38,4 @@ data class BarberEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
-) {
-    fun toDomain(): Barber = Barber(
-        id = id,
-        barbershopId = barbershopId,
-        name = name,
-        bio = bio,
-        photoUrl = photoUrl,
-        active = active,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-}
+)

@@ -1,14 +1,12 @@
-package com.geovannycode.corteya.scheduling
+package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.booking.AppointmentStatus
+import com.geovannycode.corteya.scheduling.TimeInterval
+import com.geovannycode.corteya.scheduling.WorkingSchedule as WorkingHours
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-
-data class TimeInterval(val startsAt: Instant, val endsAt: Instant) {
-    fun overlaps(other: TimeInterval): Boolean = startsAt < other.endsAt && other.startsAt < endsAt
-}
 
 data class OccupyingAppointment(
     val interval: TimeInterval,

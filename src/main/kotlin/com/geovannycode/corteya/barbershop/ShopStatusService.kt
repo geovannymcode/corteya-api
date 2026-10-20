@@ -1,8 +1,8 @@
 package com.geovannycode.corteya.barbershop
 
-import com.geovannycode.corteya.barbershop.Barbershop
-import com.geovannycode.corteya.catalog.BarberRepository
-import com.geovannycode.corteya.scheduling.WorkingHoursRepository
+import com.geovannycode.corteya.barbershop.ShopDetails
+import com.geovannycode.corteya.catalog.BarberDirectoryService
+import com.geovannycode.corteya.scheduling.WorkingHoursService
 import com.geovannycode.corteya.scheduling.TimeInterval
 import java.time.Clock
 import java.time.Instant
@@ -14,11 +14,11 @@ data class ShopStatus(val open: Boolean, val message: String, val nextChangeAt: 
 
 @Component
 class ShopStatusService(
-    private val barbers: BarberRepository,
-    private val hours: WorkingHoursRepository,
+    private val barbers: BarberDirectoryService,
+    private val hours: WorkingHoursService,
     private val clock: Clock,
 ) {
-    fun status(shop: Barbershop): ShopStatus {
+    fun status(shop: ShopDetails): ShopStatus {
         val now = clock.instant()
         val zone = ZoneId.of(shop.timezone)
         val today = now.atZone(zone).toLocalDate()

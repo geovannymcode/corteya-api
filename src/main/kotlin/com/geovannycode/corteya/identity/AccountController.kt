@@ -2,7 +2,7 @@ package com.geovannycode.corteya.identity
 
 import com.geovannycode.corteya.identity.AccountService
 import com.geovannycode.corteya.identity.AuthorizationPolicy
-import com.geovannycode.corteya.identity.IdentityStore
+import com.geovannycode.corteya.identity.IdentityRepository
 import com.geovannycode.corteya.identity.PhoneNumbers
 import com.geovannycode.corteya.identity.StaffMembership
 import io.swagger.v3.oas.annotations.Operation
@@ -32,7 +32,7 @@ data class MeResponse(val id: UUID, val phone: String?, val name: String?, val p
 @RestController
 @RequestMapping("/api/v1/me")
 @SecurityRequirement(name = "bearerAuth")
-class AccountController(private val accounts: AccountService, private val policy: AuthorizationPolicy, private val store: IdentityStore) {
+class AccountController(private val accounts: AccountService, private val policy: AuthorizationPolicy, private val store: IdentityRepository) {
     @GetMapping
     @Operation(summary = "Perfil y membresías actuales del usuario autenticado")
     fun me(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<MeResponse> {

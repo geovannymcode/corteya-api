@@ -1,6 +1,6 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.IdentityStore
+import com.geovannycode.corteya.identity.IdentityRepository
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet
@@ -65,7 +65,7 @@ class JwtConfiguration {
     fun jwtEncoder(key: SigningKey): JwtEncoder = NimbusJwtEncoder(ImmutableJWKSet(JWKSet(key.rsa)))
 
     @Bean
-    fun jwtDecoder(key: SigningKey, store: IdentityStore, clock: Clock): JwtDecoder =
+    fun jwtDecoder(key: SigningKey, store: IdentityRepository, clock: Clock): JwtDecoder =
         NimbusJwtDecoder.withPublicKey(key.rsa.toRSAPublicKey()).signatureAlgorithm(SignatureAlgorithm.RS256).build().apply {
             val time = JwtTimestampValidator(Duration.ZERO).apply { setClock(clock) }
             val account = OAuth2TokenValidator<Jwt> { jwt ->

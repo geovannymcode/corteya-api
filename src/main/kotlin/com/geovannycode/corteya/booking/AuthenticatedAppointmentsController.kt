@@ -1,8 +1,8 @@
 package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.booking.AvailabilityService
-import com.geovannycode.corteya.booking.BookingStore
-import com.geovannycode.corteya.booking.Appointment
+import com.geovannycode.corteya.booking.AppointmentRepository
+import com.geovannycode.corteya.booking.AppointmentEntity
 import com.geovannycode.corteya.identity.AuthorizationPolicy
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
@@ -29,7 +29,7 @@ data class AgendaAppointmentResponse(val barberId: UUID, val serviceId: UUID, va
 @RequestMapping("/api/v1")
 @SecurityRequirement(name = "bearerAuth")
 class AuthenticatedAppointmentsController(
-    private val policy: AuthorizationPolicy, private val bookings: BookingStore,
+    private val policy: AuthorizationPolicy, private val bookings: AppointmentRepository,
     private val availability: AvailabilityService, private val clock: Clock,
 ) {
     @GetMapping("/me/appointments")
@@ -53,6 +53,6 @@ class AuthenticatedAppointmentsController(
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows.map { AgendaAppointmentResponse(it.barberId, it.serviceId, it.response()) })
     }
 
-    private fun Appointment.response() = AppointmentStatusResponse(publicToken, status, startsAt.bogota(), endsAt.bogota(), depositCop, paymentReference, holdExpiresAt?.bogota())
+    private fun AppointmentEntity.response() = AppointmentStatusResponse(publicToken, status, startsAt.bogota(), endsAt.bogota(), depositCop, paymentReference, holdExpiresAt?.bogota())
     private fun Instant.bogota(): OffsetDateTime = atZone(ZoneId.of("America/Bogota")).toOffsetDateTime()
 }

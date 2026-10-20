@@ -5,5 +5,5 @@ import org.springframework.boot.with
 
 
 fun main(args: Array<String>) {
-	fromApplication<CorteyaApiApplication>().with(TestcontainersConfiguration::class).run(*args)
+	fromApplication<CorteyaApplication>().with(TestcontainersConfiguration::class).run(*args)
 }

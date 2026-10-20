@@ -9,8 +9,8 @@ import org.springframework.transaction.annotation.Transactional
 
 @Service
 class AuthService(
-    private val store: IdentityStore,
-    private val digests: AuthSecrets,
+    private val store: IdentityRepository,
+    private val digests: SecretDigests,
     private val sender: OtpSender,
     private val tokens: AccessTokens,
     private val clock: Clock,

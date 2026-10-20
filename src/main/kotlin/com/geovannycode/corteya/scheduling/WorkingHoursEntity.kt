@@ -1,6 +1,5 @@
 package com.geovannycode.corteya.scheduling
 
-import com.geovannycode.corteya.scheduling.WorkingHours
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.Id
@@ -40,15 +39,4 @@ data class WorkingHoursEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
-) {
-    fun toDomain(): WorkingHours = WorkingHours(
-        id = id,
-        barbershopId = barbershopId,
-        barberId = barberId,
-        dayOfWeek = dayOfWeek,
-        startTime = startTime,
-        endTime = endTime,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-    )
-}
+)

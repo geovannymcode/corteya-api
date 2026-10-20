@@ -1,8 +1,9 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.Appointment
+import com.geovannycode.corteya.booking.AppointmentEntity
 import com.geovannycode.corteya.booking.BookingCodes
 import com.geovannycode.corteya.identity.AuthorizationPolicy
+import com.geovannycode.corteya.customer.CustomerService
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -18,13 +19,14 @@ data class CreateAppointmentCommand(
 @Service
 class CreateAppointment(
     private val availability: AvailabilityService,
-    private val bookings: BookingStore,
+    private val bookings: AppointmentRepository,
     private val codes: PaymentReferences,
     private val clock: Clock,
     private val policy: AuthorizationPolicy,
+    private val customers: CustomerService,
 ) {
     @Transactional
-    fun create(slug: String, command: CreateAppointmentCommand): Appointment {
+    fun create(slug: String, command: CreateAppointmentCommand): AppointmentEntity {
         val selection = availability.select(slug, command.barberId, command.serviceId)
         val (shop, barber, service) = selection
         val customer = policy.bookingCustomer(command.userId)
@@ -36,11 +38,11 @@ class CreateAppointment(
         if (command.startsAt !in availability.slots(selection, date, now).all()) BookingFailure.slotTaken()
 
         // The upsert locks this tenant + phone until commit, serializing the pending count.
-        val customerId = bookings.upsertAndLockCustomer(shop.id, phone, name, customer.id, now)
+        val customerId = customers.upsertAndLockCustomer(shop.id, phone, name, customer.id, now)
         if (bookings.pendingCount(shop.id, customerId) >= 2) {
             throw BookingFailure(409, "Ya tienes 2 reservas pendientes de pago en esta barbería")
         }
-        val candidate = Appointment(
+        val candidate = AppointmentEntity(
             barbershopId = shop.id, barberId = barber.id, serviceId = service.id, customerId = customerId,
             startsAt = command.startsAt, endsAt = command.startsAt.plusSeconds(service.durationMinutes.toLong() * 60),
             priceCop = service.priceCop, depositCop = BookingCodes.depositCop(service.priceCop, shop.depositPercent),

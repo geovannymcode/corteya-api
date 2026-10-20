@@ -4,8 +4,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
 @SpringBootApplication
-class CorteyaApiApplication
+class CorteyaApplication
 
 fun main(args: Array<String>) {
-    runApplication<CorteyaApiApplication>(*args)
+    runApplication<CorteyaApplication>(*args)
 }

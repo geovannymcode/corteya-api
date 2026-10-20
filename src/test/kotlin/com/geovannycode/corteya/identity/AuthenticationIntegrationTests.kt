@@ -4,7 +4,7 @@ import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.RecordingOtpSender
 import com.geovannycode.corteya.booking.FixedBookingTestConfiguration
 import com.geovannycode.corteya.booking.MutableTestClock
-import com.geovannycode.corteya.identity.IdentityStore
+import com.geovannycode.corteya.identity.IdentityRepository as IdentityStore
 import com.geovannycode.corteya.identity.JwtConfiguration
 import com.geovannycode.corteya.identity.SigningKey
 import org.junit.jupiter.api.AfterAll

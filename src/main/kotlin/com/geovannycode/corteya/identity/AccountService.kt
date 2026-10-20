@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 @Service
-class AccountService(private val store: IdentityStore, private val clock: Clock) {
+class AccountService(private val store: IdentityRepository, private val clock: Clock) {
     @Transactional
     fun rename(userId: UUID, name: String) {
         store.lockUser(userId) ?: AuthFailure.unauthenticated()

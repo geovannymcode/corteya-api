@@ -12,7 +12,7 @@ data class ReservedOtp(val id: UUID, val phone: String, val code: String) {
 }
 
 @Service
-class OtpReservationService(private val store: IdentityStore, private val digests: AuthSecrets, private val clock: Clock) {
+class OtpReservationService(private val store: IdentityRepository, private val digests: SecretDigests, private val clock: Clock) {
     @Transactional
     fun reserveOtp(rawPhone: String, ip: String): ReservedOtp {
         val phone = PhoneNumbers.normalize(rawPhone)

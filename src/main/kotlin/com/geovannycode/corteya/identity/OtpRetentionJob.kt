@@ -1,13 +1,13 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.IdentityStore
+import com.geovannycode.corteya.identity.IdentityRepository
 import java.time.Clock
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import org.springframework.transaction.annotation.Transactional
 
 @Component
-class OtpRetentionJob(private val store: IdentityStore, private val clock: Clock) {
+class OtpRetentionJob(private val store: IdentityRepository, private val clock: Clock) {
     @Scheduled(cron = "0 0 3 * * *", zone = "UTC")
     @Transactional
     fun purge() {

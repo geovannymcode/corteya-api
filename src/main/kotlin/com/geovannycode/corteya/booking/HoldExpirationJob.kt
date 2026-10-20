@@ -1,12 +1,12 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.booking.BookingStore
+import com.geovannycode.corteya.booking.AppointmentRepository
 import java.time.Clock
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 
 @Component
-class HoldExpirationJob(private val bookings: BookingStore, private val clock: Clock) {
+class HoldExpirationJob(private val bookings: AppointmentRepository, private val clock: Clock) {
     // TODO: use ShedLock if the deployment ever runs more than one instance.
     @Scheduled(cron = "0 * * * * *", zone = "UTC")
     fun expire() { bookings.expireAll(clock.instant()) }
