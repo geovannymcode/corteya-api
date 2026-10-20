@@ -5,6 +5,8 @@ reviews:
   request_changes_workflow: true
   high_level_summary: true
   auto_review:
+    base_branches:
+      - "main"
     enabled: true
     drafts: false
   path_instructions:

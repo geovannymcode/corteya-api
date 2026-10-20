@@ -43,3 +43,6 @@ out/
 .env
 .env.*
 !.env.example
+.DS_Store
+ruleset-certification-main.json
+ruleset-develop.json
