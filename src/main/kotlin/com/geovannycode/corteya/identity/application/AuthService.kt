@@ -14,24 +14,20 @@ class AuthService(
     private val sender: OtpSender,
     private val tokens: AccessTokens,
     private val clock: Clock,
+    private val reservations: OtpReservationService,
 ) {
-    // AuthFailure must commit: failed attempts, replay revocations and attempted sends are durable.
-    @Transactional(noRollbackFor = [AuthFailure::class])
     fun request(rawPhone: String, ip: String) {
-        val phone = normalize(rawPhone)
-        store.lockOtpRequest(phone, ip)
-        val now = clock.instant()
-        val last = store.lastOtpSentAt(phone)
-        if (last != null && now < last.plusSeconds(60) || store.otpCountForPhone(phone, now.minusSeconds(3600)) >= 5 ||
-            store.otpCountForIp(ip, now.minusSeconds(3600)) >= 10) {
-            throw AuthFailure(429, "Has solicitado demasiados códigos; espera antes de intentar de nuevo")
+        // The separate Spring service commits before invoking the external sender.
+        val reservation = reservations.reserveOtp(rawPhone, ip)
+        try {
+            sender.send(reservation.phone, reservation.code)
+        } catch (_: Exception) {
+            reservations.invalidate(reservation.id)
+            throw AuthFailure(503, "No pudimos enviar el código, intenta de nuevo en un momento")
         }
-        val id = UUID.randomUUID()
-        val code = digests.otpCode()
-        store.insertOtp(id, phone, digests.otpHash(id, phone, code), now.plusSeconds(300), now, ip)
-        sender.send(phone, code)
     }
 
+    // Failed verification attempts and refresh replay revocations must survive error responses.
     @Transactional(noRollbackFor = [AuthFailure::class])
     fun verify(rawPhone: String, code: String): TokenPair {
         val phone = normalize(rawPhone)

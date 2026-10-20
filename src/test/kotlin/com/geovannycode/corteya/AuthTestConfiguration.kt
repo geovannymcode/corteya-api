@@ -7,7 +7,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 class RecordingOtpSender : OtpSender {
     val codes = ConcurrentHashMap<String, String>()
-    override fun send(phone: String, code: String) { codes[phone] = code }
+    @Volatile var beforeSend: ((String, String) -> Unit)? = null
+    override fun send(phone: String, code: String) {
+        beforeSend?.invoke(phone, code)
+        codes[phone] = code
+    }
 }
 
 @TestConfiguration(proxyBeanMethods = false)
