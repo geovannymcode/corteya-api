@@ -1,9 +1,9 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.domain.PhoneNumbers
-import com.geovannycode.corteya.identity.infrastructure.otp.LogOtpSender
-import com.geovannycode.corteya.identity.infrastructure.security.JwtConfiguration
-import com.geovannycode.corteya.identity.infrastructure.security.SecretDigests
+import com.geovannycode.corteya.identity.PhoneNumbers
+import com.geovannycode.corteya.identity.LogOtpSender
+import com.geovannycode.corteya.identity.JwtConfiguration
+import com.geovannycode.corteya.identity.SecretDigests
 import org.junit.jupiter.api.Test
 import org.springframework.mock.env.MockEnvironment
 import java.security.KeyPairGenerator
@@ -19,10 +19,10 @@ class IdentitySecurityTests {
         val code = "123456"
         val token = "private-refresh-token"
         val values = listOf(
-            com.geovannycode.corteya.identity.infrastructure.web.RequestOtpBody(phone).toString(),
-            com.geovannycode.corteya.identity.infrastructure.web.VerifyOtpBody(phone, code).toString(),
-            com.geovannycode.corteya.identity.infrastructure.web.RefreshBody(token).toString(),
-            com.geovannycode.corteya.identity.application.TokenPair("private-access-token", token).toString(),
+            com.geovannycode.corteya.identity.RequestOtpBody(phone).toString(),
+            com.geovannycode.corteya.identity.VerifyOtpBody(phone, code).toString(),
+            com.geovannycode.corteya.identity.RefreshBody(token).toString(),
+            com.geovannycode.corteya.identity.TokenPair("private-access-token", token).toString(),
         )
         values.forEach { text -> assertTrue(listOf(phone, code, token, "private-access-token").none(text::contains)) }
     }

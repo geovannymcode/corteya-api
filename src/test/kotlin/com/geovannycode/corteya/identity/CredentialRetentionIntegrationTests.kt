@@ -3,7 +3,7 @@ package com.geovannycode.corteya.identity
 import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.booking.FixedBookingTestConfiguration
 import com.geovannycode.corteya.booking.MutableTestClock
-import com.geovannycode.corteya.identity.infrastructure.scheduling.OtpRetentionJob
+import com.geovannycode.corteya.identity.OtpRetentionJob
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.UUID

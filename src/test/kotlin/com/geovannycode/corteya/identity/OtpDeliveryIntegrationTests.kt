@@ -4,7 +4,7 @@ import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.RecordingOtpSender
 import com.geovannycode.corteya.booking.FixedBookingTestConfiguration
 import com.geovannycode.corteya.booking.MutableTestClock
-import com.geovannycode.corteya.identity.application.AuthService
+import com.geovannycode.corteya.identity.AuthService
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest

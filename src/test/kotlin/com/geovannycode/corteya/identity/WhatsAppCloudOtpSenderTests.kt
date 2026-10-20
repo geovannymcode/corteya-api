@@ -1,8 +1,8 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.application.AuthFailure
-import com.geovannycode.corteya.identity.infrastructure.otp.WhatsAppCloudOtpSender
-import com.geovannycode.corteya.identity.infrastructure.otp.WhatsAppTemplate
+import com.geovannycode.corteya.identity.AuthFailure
+import com.geovannycode.corteya.identity.WhatsAppCloudOtpSender
+import com.geovannycode.corteya.identity.WhatsAppTemplate
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod

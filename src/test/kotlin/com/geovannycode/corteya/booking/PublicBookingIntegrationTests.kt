@@ -1,11 +1,11 @@
 package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.PostgresIntegrationTest
-import com.geovannycode.corteya.identity.application.AccessTokens
-import com.geovannycode.corteya.identity.application.IdentityStore
-import com.geovannycode.corteya.booking.application.PaymentReferences
-import com.geovannycode.corteya.booking.domain.BookingCodes
-import com.geovannycode.corteya.booking.infrastructure.scheduling.HoldExpirationJob
+import com.geovannycode.corteya.identity.AccessTokens
+import com.geovannycode.corteya.identity.IdentityStore
+import com.geovannycode.corteya.booking.PaymentReferences
+import com.geovannycode.corteya.booking.BookingCodes
+import com.geovannycode.corteya.booking.HoldExpirationJob
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
