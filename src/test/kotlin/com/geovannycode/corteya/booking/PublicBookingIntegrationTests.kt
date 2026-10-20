@@ -261,6 +261,16 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
     }
 
     @Test
+    fun `dates before today outside the window and at LocalDate MAX return empty availability`() {
+        listOf("2026-10-18", "2026-11-02", "%2B999999999-12-31").forEach { date ->
+            val response = get("/api/v1/barbershops/shop-a/availability?barberId=$barber&serviceId=$service&date=$date")
+            assertEquals(200, response.statusCode(), response.body())
+            assertEquals(0, json(response).path("morning").size())
+            assertEquals(0, json(response).path("afternoon").size())
+        }
+    }
+
+    @Test
     fun `validation errors are Spanish ProblemDetails and never contain submitted PII or stack traces`() {
         val invalid = listOf(
             create(time = "2026-10-19T09:00:00"),

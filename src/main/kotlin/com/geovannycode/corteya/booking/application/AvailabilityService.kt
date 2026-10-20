@@ -52,6 +52,8 @@ class AvailabilityService(
     fun slots(selection: BookingSelection, date: LocalDate, now: Instant): Slots {
         val (shop, barber, service) = selection
         val zone = ZoneId.of(shop.timezone)
+        val today = now.atZone(zone).toLocalDate()
+        if (date < today || date >= today.plusDays(shop.bookingWindowDays.toLong())) return Slots(emptyList(), emptyList())
         val start = date.atStartOfDay(zone).toInstant()
         val end = date.plusDays(1).atStartOfDay(zone).toInstant()
         return SlotGenerator.generate(
