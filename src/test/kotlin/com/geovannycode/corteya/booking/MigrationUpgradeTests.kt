@@ -36,7 +36,7 @@ class MigrationUpgradeTests {
                 }
             }
             val latest = Flyway.configure().dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
-                .locations("classpath:db/migration").load()
+                .locations("classpath:db/migration").target("3").load()
             assertEquals(2, latest.migrate().migrationsExecuted)
             latest.validate()
             DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
