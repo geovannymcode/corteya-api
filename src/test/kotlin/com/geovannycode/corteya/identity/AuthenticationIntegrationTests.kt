@@ -329,6 +329,7 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(201, created.statusCode())
         assertEquals(201, book(me, slug = "shop-b", b = otherBarber, s = otherService).statusCode())
         assertEquals(204, send("DELETE", "/api/v1/me", token = me.access).statusCode())
+        assertEquals(0, count("otp_challenge"))
         assertEquals(2, count("appointment"))
         assertEquals(2, count("customer", "name = 'Cliente eliminado' and phone is null"))
         assertEquals(1, count("app_user", "name = 'Cliente eliminado' and phone is null and deleted_at is not null"))

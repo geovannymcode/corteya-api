@@ -23,6 +23,8 @@ interface IdentityStore {
     fun otpCountForPhone(phone: String, since: Instant): Int
     fun otpCountForIp(ip: String, since: Instant): Int
     fun insertOtp(id: UUID, phone: String, hash: String, expiresAt: Instant, now: Instant, ip: String)
+    fun purgeExpiredOtps(cutoff: Instant): Int
+    fun purgeExpiredRefreshTokens(cutoff: Instant): Int
     fun latestOtp(phone: String): OtpChallenge?
     fun failOtp(id: UUID, attempts: Int, now: Instant)
     fun consumeOtp(id: UUID, now: Instant)

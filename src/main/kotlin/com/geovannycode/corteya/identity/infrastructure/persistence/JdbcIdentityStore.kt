@@ -37,6 +37,7 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate) : IdentityStore {
 
     override fun updateName(userId: UUID, name: String) { jdbc.update("update app_user set name = ? where id = ? and deleted_at is null", name, userId) }
     override fun anonymize(userId: UUID, now: Instant) {
+        jdbc.update("delete from otp_challenge where phone = (select phone from app_user where id = ?)", userId)
         jdbc.update("update customer set name = 'Cliente eliminado', phone = null where user_id = ?", userId)
         jdbc.update("delete from staff_membership where user_id = ?", userId)
         jdbc.update("update refresh_token set revoked_at = coalesce(revoked_at, ?) where user_id = ?", Timestamp.from(now), userId)
@@ -60,6 +61,17 @@ class JdbcIdentityStore(private val jdbc: JdbcTemplate) : IdentityStore {
     override fun insertOtp(id: UUID, phone: String, hash: String, expiresAt: Instant, now: Instant, ip: String) {
         jdbc.update("insert into otp_challenge (id, phone, code_hash, expires_at, request_ip, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?)", id, phone, hash, Timestamp.from(expiresAt), ip, Timestamp.from(now), Timestamp.from(now))
     }
+    override fun purgeExpiredOtps(cutoff: Instant): Int =
+        jdbc.update("delete from otp_challenge where expires_at < ?", Timestamp.from(cutoff))
+
+    override fun purgeExpiredRefreshTokens(cutoff: Instant): Int {
+        val timestamp = Timestamp.from(cutoff)
+        // Detach rotation links before deleting their targets; retained credentials stay intact.
+        jdbc.update("""update refresh_token set replaced_by = null where replaced_by in
+            (select id from refresh_token where expires_at < ? or revoked_at < ?)""", timestamp, timestamp)
+        return jdbc.update("delete from refresh_token where expires_at < ? or revoked_at < ?", timestamp, timestamp)
+    }
+
     override fun latestOtp(phone: String): OtpChallenge? = jdbc.query(
         "select id, code_hash, expires_at, attempts, consumed_at from otp_challenge where phone = ? order by created_at desc, id desc limit 1 for update",
         { r, _ -> OtpChallenge(r.getObject("id", UUID::class.java), r.getString("code_hash"), r.getTimestamp("expires_at").toInstant(), r.getInt("attempts"), r.getTimestamp("consumed_at")?.toInstant()) }, phone,

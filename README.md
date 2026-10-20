@@ -277,6 +277,12 @@ un hold recién vencido puede seguir apareciendo pendiente hasta la próxima lim
 `booking.scheduling.enabled=false` desactiva únicamente la programación automática
 para pruebas; el job se puede invocar directamente con el Clock fijado.
 
+`OtpRetentionJob` se ejecuta diariamente a las 03:00 UTC con el `Clock` inyectado:
+borra desafíos OTP vencidos hace más de 24 horas y refresh tokens vencidos o revocados
+hace más de 30 días. Los límites exactos se conservan hasta la siguiente ejecución.
+El borrado de cuenta elimina primero sus desafíos OTP dentro de la misma transacción
+que anonimiza el teléfono. V4 agrega los índices de retención; V1–V3 no cambian.
+
 Flyway necesita permiso para crear `btree_gist`. Hibernate usa `ddl-auto: validate`;
 no cambia el esquema. No modifiques migraciones ya aplicadas: crea una nueva versión.
 
@@ -307,7 +313,6 @@ Informe: `build/reports/tests/test/index.html`. JAR ejecutable: `build/libs/cort
 - Fase 4: instrucciones y confirmación Bre-B/Wompi en cuentas de los barberos; webhooks.
 - Row-Level Security de PostgreSQL, fuera del alcance de esta fase.
 - ShedLock si se despliegan varias instancias.
-- Política y limpieza de retención de desafíos OTP y credenciales revocadas.
 - Cancelación, asistencia, notificaciones y recordatorios.
 - Panel admin Vaadin, app Flutter y entrada por QR/link.
 - Fase 10 (despliegue): configurar `forward-headers-strategy=native` +

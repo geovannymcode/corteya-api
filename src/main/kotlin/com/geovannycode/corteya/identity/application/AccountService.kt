@@ -17,6 +17,9 @@ class AccountService(private val store: IdentityStore, private val clock: Clock)
 
     @Transactional
     fun delete(userId: UUID) {
+        val user = store.findUser(userId) ?: AuthFailure.unauthenticated()
+        // Verification locks phone -> user. Keep that order before removing OTP rows.
+        user.phone?.let(store::lockOtpPhone)
         store.lockUser(userId) ?: AuthFailure.unauthenticated()
         store.anonymize(userId, clock.instant())
     }
