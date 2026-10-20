@@ -1,3 +1,5 @@
+-- Dev fixture context is local to this Flyway transaction.
+SELECT set_config('app.barbershop_id', '10000000-0000-0000-0000-000000000001', true);
 -- Loaded exclusively through application-dev.yaml. Synthetic public demo data only.
 INSERT INTO barbershop (id, slug, name, logo_url, primary_color, secondary_color)
 VALUES ('10000000-0000-0000-0000-000000000001', 'barberia-piloto', 'Barbería Piloto',
