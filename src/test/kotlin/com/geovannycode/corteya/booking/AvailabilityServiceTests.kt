@@ -2,7 +2,6 @@ package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.barbershop.BarbershopService as BarbershopRepository
 import com.geovannycode.corteya.barbershop.ShopDetails as Barbershop
-import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.booking.internal.AppointmentRepository as BookingStore
 import com.geovannycode.corteya.catalog.BarberAssignment as BarberService
 import com.geovannycode.corteya.catalog.BarberAssignmentService as BarberServiceRepository
@@ -15,6 +14,7 @@ import com.geovannycode.corteya.scheduling.BlockedTime as TimeOff
 import com.geovannycode.corteya.scheduling.TimeOffService as TimeOffRepository
 import com.geovannycode.corteya.scheduling.WorkingHoursService as WorkingHoursRepository
 import com.geovannycode.corteya.scheduling.WorkingSchedule as WorkingHours
+import com.geovannycode.corteya.shared.TenantTransaction
 import java.time.*
 import kotlin.test.assertEquals
 import org.junit.jupiter.api.Test
@@ -28,13 +28,17 @@ class AvailabilityServiceTests {
     private val hours = mock(WorkingHoursRepository::class.java)
     private val timeOff = mock(TimeOffRepository::class.java)
     private val bookings = mock(BookingStore::class.java)
+    private val tenants = mock(TenantTransaction::class.java, withSettings().defaultAnswer { invocation ->
+        if (invocation.method.name == "execute") invocation.getArgument<() -> Any?>(1).invoke()
+        else org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation)
+    })
     private val now = Instant.parse("2026-10-19T13:00:00Z")
     private val zone = ZoneId.of("America/Bogota")
     private val today = now.atZone(zone).toLocalDate()
     private val shop = Barbershop(slug = "shop-a", name = "Piloto")
     private val service = Service(barbershopId = shop.id, name = "Corte", durationMinutes = 30, priceCop = 38000)
     private val subject = AvailabilityService(shops, barbers, services, assignments, hours, timeOff, bookings,
-        Clock.fixed(now, ZoneOffset.UTC))
+        Clock.fixed(now, ZoneOffset.UTC), tenants)
 
     @Test
     fun `out of window dates do not query schedule inputs`() {

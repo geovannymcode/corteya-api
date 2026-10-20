@@ -27,8 +27,7 @@ class CredentialRetentionIntegrationTests : PostgresIntegrationTest() {
     @BeforeEach
     fun fixtures() {
         clock.set(now)
-        jdbc.execute("TRUNCATE app_user CASCADE")
-        jdbc.execute("TRUNCATE otp_challenge")
+        resetData()
         jdbc.update("insert into app_user (id, phone) values (?, '+573001234567')", user)
     }
 

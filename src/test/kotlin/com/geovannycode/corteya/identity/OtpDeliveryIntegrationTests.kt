@@ -43,7 +43,7 @@ class OtpDeliveryIntegrationTests : PostgresIntegrationTest(web = true) {
         sender.codes.clear()
         dataSource.maximumPoolSize = 1
         dataSource.hikariPoolMXBean.softEvictConnections()
-        jdbc.execute("TRUNCATE otp_challenge")
+        jdbc.update("delete from otp_challenge")
     }
 
     @AfterEach
