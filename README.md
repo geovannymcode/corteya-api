@@ -34,6 +34,8 @@ Necesitas JDK 25 y Docker con Compose v2 en ejecución. Desde la raíz:
 
 ```sh
 cp .env.example .env
+# Edita .env: define POSTGRES_PASSWORD, CORTEYA_OWNER_PASSWORD y CORTEYA_APP_PASSWORD.
+# Usa contraseñas distintas; DB_PASSWORD y FLYWAY_PASSWORD referencian las anteriores.
 set -a
 source .env
 set +a
@@ -67,6 +69,72 @@ barbero). Son números sintéticos de desarrollo: usa el emisor de log para prob
 Sin `dev`, Flyway solo lee `db/migration`. Desactivar el perfil no borra datos sembrados:
 usa bases separadas. Para arrancar sin semilla usa una base vacía y `./gradlew bootRun`, con las claves y WhatsApp
 configurados como se indica abajo.
+
+## Roles y Row-Level Security (fase 3B)
+
+`docker/postgres/01-roles.sh` crea dos roles sin superuser ni BYPASSRLS:
+
+| Rol | Uso | Permisos |
+| --- | --- | --- |
+| `corteya_owner` | Solo Flyway (`spring.flyway.user/password`) | Dueño de tablas, funciones y migraciones; crea el esquema y `btree_gist`. |
+| `corteya_app` | DataSource de runtime (`spring.datasource.username/password`) | USAGE del esquema/secuencias y SELECT/INSERT/UPDATE/DELETE de tablas; no ownership, CREATE ni TRUNCATE. |
+
+Las credenciales de `.env.example` están vacías y se deben completar localmente. Los
+`ALTER DEFAULT PRIVILEGES` del owner conceden los permisos anteriores a las tablas y
+secuencias futuras. La app solo puede leer el historial de Flyway, no modificarlo.
+El arranque rechaza credenciales de runtime que sean owner, superuser, BYPASSRLS o
+miembros de `corteya_owner`.
+
+El script de inicialización solo corre con un volumen vacío. **Una base ya existente
+requiere preparación por su administrador**: crear ambos roles, transferir los objetos
+de aplicación del esquema `public` (incluido `flyway_schema_history`) a `corteya_owner`
+y aplicar los grants/default privileges antes de arrancar Flyway con ese rol. Mantén
+los datos y un respaldo; cambiar `.env` no reejecuta el init ni cambia ownership.
+No se elimina ni recrea automáticamente el volumen. Las migraciones V1–V4 se conservan
+sin cambios; V5 aplica RLS y migra el directorio de identidad desde los datos existentes.
+
+| Tablas | RLS | Comportamiento |
+| --- | --- | --- |
+| `barber`, `service`, `barber_service`, `working_hours`, `time_off`, `customer`, `appointment` | ENABLE + FORCE | USING y WITH CHECK exigen que `barbershop_id` coincida con el contexto transaccional. Sin contexto: cero filas; INSERT rechazado. |
+| `barbershop` | ENABLE + FORCE | Sin contexto solo se descubren activas. Un contexto válido puede leer también su propia barbería inactiva. INSERT/UPDATE/DELETE requieren contexto igual a `id`. |
+| `app_user`, `otp_challenge`, `refresh_token` | Sin RLS, identidad global | Login y credenciales aislados en código por usuario, teléfono verificado o hash secreto. |
+| `staff_membership` | Sin RLS, excepción de identidad | Conserva `barbershop_id`, índice y FK compuesta; login y autorización necesitan membresías entre barberías, filtradas por usuario. |
+| `customer_identity` | Sin RLS, excepción de identidad | Directorio mínimo para vinculación verificada, historial y borrado entre barberías, incluidas inactivas. Acceso únicamente por usuario autenticado o teléfono ya verificado. |
+
+`customer_identity` contiene el id del cliente, su barbería, usuario vinculado y teléfono
+para identificar también clientes manuales pendientes de vinculación. Su FK compuesta
+valida el vínculo; un trigger con privilegios del invocador lo mantiene al insertar o
+vincular clientes y elimina el registro al anonimizar su teléfono. No tiene nombres ni
+una API pública. V5 rellena los vínculos existentes antes de habilitar RLS. Así, login,
+historial y borrado siguen funcionando para barberías inactivas sin un rol privilegiado,
+`SECURITY DEFINER` ni un “modo sistema”.
+
+El contexto se establece únicamente en `shared/TenantTransaction`, usando parámetros
+JDBC con `SELECT set_config('app.barbershop_id', ?, true)` **antes de acceder a datos
+protegidos**. `true` limita el valor a la transacción; no se almacena en la sesión del
+pool. Las políticas usan `NULLIF(current_setting('app.barbershop_id', true), '')::uuid`
+para que tanto ausencia como valor vacío tras un commit/rollback produzcan cero filas.
+No se configura el contexto a mano en los servicios. El UUID debe proceder del slug
+resuelto, de una membresía validada o del directorio del usuario verificado, nunca de
+un parámetro libre del cliente.
+
+```kotlin
+tenants.execute(shop.id) {
+    // Consultas y cambios de una única barbería, dentro de la transacción.
+}
+```
+
+El componente impide cambiar de barbería en una operación anidada y vacía/limpia el
+contexto de persistencia antes de visitar otra barbería. Si identidad ya abrió una
+transacción global (p. ej. borrar cuenta), las visitas participan en ella para conservar
+el rollback atómico de todas las barberías. El contexto local desaparece al completar
+la transacción; no se reutiliza entre solicitudes.
+
+El job de holds obtiene las barberías activas y ejecuta un UPDATE por barbería en su
+propia transacción contextualizada. El job de retención de OTP/refresh no cambia: sus
+tablas son globales. Toda tabla futura con `barbershop_id` debe habilitar ENABLE + FORCE
+RLS y crear su política en la misma migración; las excepciones de identidad son explícitas.
+Consulta la [documentación de RLS de PostgreSQL](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
 
 ## Configuración de autenticación
 
@@ -272,6 +340,8 @@ flowchart TB
     identity --> shared
     barbershop --> catalog
     barbershop --> scheduling
+    barbershop --> shared
+    customer --> shared
 ```
 
 `ModularityTests` ejecuta `ApplicationModules.of(CorteyaApplication::class.java).verify()`
@@ -335,9 +405,10 @@ constraint `btree_gist` antidobles reservas. Los accesos a recursos de barbería
 reciben usuario, teléfono verificado o hash secreto. Las consultas de historial propio,
 la vinculación por teléfono verificado y el borrado recorren las barberías de ese usuario.
 Resolver el token público internamente siempre requiere después autorización central.
-El job sigue siendo una operación global de mantenimiento.
+El job recorre las barberías activas sin saltarse RLS.
 
-`HoldExpirationJob` se ejecuta cada minuto con un único `UPDATE`, pasa solo pendientes
+`HoldExpirationJob` se ejecuta cada minuto con un `UPDATE` por barbería activa, dentro
+de su transacción con contexto RLS. Pasa solo pendientes
 vencidos a `EXPIRED` e incrementa `version` para invalidar escrituras JPA antiguas.
 Es idempotente y no modifica confirmadas. El polling devuelve el estado persistido:
 un hold recién vencido puede seguir apareciendo pendiente hasta la próxima limpieza.
@@ -370,7 +441,14 @@ contrato OpenAPI, Swagger UI, login OTP completo, límites y consumo concurrente
 JWT vencido/manipulado, rotación y reuso concurrentes, aislamiento de cliente y staff,
 perfil incompleto, borrado de cuenta con reservas concurrentes, redacción de secretos,
 PEM de producción y payload de Meta con `MockRestServiceServer`, además de regresiones
-de las fases anteriores. Las pruebas no se omiten si falta
+de las fases anteriores. Todas las pruebas de aplicación consultan como `corteya_app`;
+Flyway conecta como `corteya_owner`. Testcontainers ejecuta el mismo script de roles
+de Compose, usando su administrador únicamente para el bootstrap. Los fixtures hacen
+DML con contexto real, sin TRUNCATE ni conexiones privilegiadas para preparar/consultar datos.
+Las pruebas nuevas verifican consultas nativas sin WHERE, WITH CHECK, ownership/roles,
+commit/rollback en la misma conexión del pool, upgrade V4→V5, operaciones atómicas entre
+barberías y conservación de historial/borrado/vinculación en barberías inactivas.
+Las pruebas no se omiten si falta
 Docker; fallan para hacer visible el problema.
 
 Informe: `build/reports/tests/test/index.html`. JAR ejecutable: `build/libs/corteya-api-0.0.1-SNAPSHOT.jar`.
@@ -378,7 +456,6 @@ Informe: `build/reports/tests/test/index.html`. JAR ejecutable: `build/libs/cort
 ## TODO — fases posteriores
 
 - Fase 4: instrucciones y confirmación Bre-B/Wompi en cuentas de los barberos; webhooks.
-- Row-Level Security de PostgreSQL, fuera del alcance de esta fase.
 - ShedLock si se despliegan varias instancias.
 - Cancelación, asistencia, notificaciones y recordatorios.
 - Panel admin Vaadin, app Flutter y entrada por QR/link.
