@@ -217,9 +217,76 @@ siguen disponibles para consultar el contrato.
 
 ## Arquitectura y tiempo
 
-Los módulos `barbershop`, `catalog`, `scheduling`, `booking`, `customer` e `identity` mantienen
-`domain` / `application` / `infrastructure`. `SlotGenerator` es Kotlin puro: recibe
+La aplicación usa **package-by-feature**, con siete módulos cerrados verificados por
+[Spring Modulith 2.1.1](https://spring.io/projects/spring-modulith/), compatible con
+Spring Boot 4.1.1. Solo se agregan los starters `core` y `test`; este último incluye
+`Documenter`.
+
+```text
+com.geovannycode.corteya
+├── CorteyaApplication.kt
+├── barbershop/   # Identidad visual, configuración y apertura
+├── catalog/      # Barberos, servicios y asignaciones
+├── scheduling/   # Horarios semanales y bloqueos
+├── booking/      # Disponibilidad, generador puro, citas y expiración
+├── customer/     # Clientes por barbería, vinculación y anonimización
+├── identity/     # OTP, JWT/refresh, cuenta /me y autorización
+└── shared/       # Clock, configuración, ProblemDetail, seguridad HTTP y logging
+```
+
+Cada módulo expone sus servicios y contratos de lectura desde su paquete raíz.
+Los controladores quedan planos; los DTO HTTP están en `dto/`. `internal/` contiene
+entidades JPA, repositorios concretos y detalles de implementación. Ningún módulo
+importa la entidad ni el repositorio de otro. Los contratos de lectura entre servicios
+omiten auditoría, versión optimista y otros datos de persistencia; no son un segundo
+modelo de dominio. Las proyecciones necesarias viven en el servicio dueño, sin clases
+mapper ni adaptadores que envuelvan repositorios.
+
+Hay una sola entidad por tabla JPA y repositorios concretos, sin puertos de una sola
+implementación ni operaciones CRUD sin barbería. La única interfaz de estrategia es
+`OtpSender`, con implementaciones Log y WhatsApp. Las consultas JDBC de OTP, locks,
+clientes, reservas, expiración y retención se conservan literalmente, con los mismos
+límites transaccionales. Las operaciones sobre clientes se realizan en `CustomerService`.
+
+`SlotGenerator` permanece Kotlin puro en `booking`: calcula disponibilidad usando
+estados de cita propios de ese módulo y horarios públicos de `scheduling`. Recibe
 horarios, bloqueos, citas, reglas, duración, fecha, zona y ahora; no depende de Spring.
+Su implementación y las aserciones/datos de las 91 pruebas originales se conservan.
+El cableado de pruebas solo adapta referencias de paquetes, el nombre de la aplicación
+y la herencia del doble de referencias de pago a una clase concreta.
+
+El diagrama refleja las dependencias comprobadas por Modulith. Las flechas apuntan
+al módulo proveedor de un servicio o contrato público:
+
+```mermaid
+flowchart TB
+    booking --> identity
+    booking --> barbershop
+    booking --> catalog
+    booking --> scheduling
+    booking --> customer
+    booking --> shared
+    identity --> barbershop
+    identity --> catalog
+    identity --> customer
+    identity --> shared
+    barbershop --> catalog
+    barbershop --> scheduling
+```
+
+`ModularityTests` ejecuta `ApplicationModules.of(CorteyaApplication::class.java).verify()`
+sin exclusiones ni módulos abiertos y genera la documentación con `Documenter`. Para
+regenerarla sin ejecutar los tests de PostgreSQL:
+
+```sh
+./gradlew test --tests '*ModularityTests'
+```
+
+La salida queda en `build/modulith-docs/`: `components.puml` contiene el diagrama general;
+`module-*.puml` y `module-*.adoc`, los diagramas y fichas de cada módulo; `all-docs.adoc`
+los reúne. La tarea `test` los genera también al ejecutar la suite completa. Son artefactos
+de build, no archivos versionados. Después de `clean`, vuelve a ejecutar la prueba para
+regenerarlos.
 
 - Horarios semanales: días ISO 1=lunes a 7=domingo, `LocalTime`, intervalos dentro del día.
 - Huecos cada `slot_step_minutes`, anclados al inicio de cada periodo laboral; el servicio
