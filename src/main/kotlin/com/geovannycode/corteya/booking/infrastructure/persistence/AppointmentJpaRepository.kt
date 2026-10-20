@@ -2,7 +2,6 @@ package com.geovannycode.corteya.booking.infrastructure.persistence
 
 import com.geovannycode.corteya.booking.application.AppointmentRepository
 import java.util.UUID
-import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.Repository
 import org.springframework.stereotype.Component
 

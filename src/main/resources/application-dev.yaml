@@ -4,3 +4,9 @@ spring:
       on-profile: dev
   flyway:
     locations: classpath:db/migration,classpath:db/dev
+
+auth:
+  otp:
+    sender: ${AUTH_OTP_SENDER:log}
+  jwt:
+    ephemeral: true

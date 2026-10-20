@@ -8,6 +8,6 @@ data class BarberService(
     val barbershopId: UUID,
     val barberId: UUID,
     val serviceId: UUID,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )

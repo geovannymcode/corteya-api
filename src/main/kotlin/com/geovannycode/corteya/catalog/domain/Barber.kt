@@ -10,6 +10,6 @@ data class Barber(
     val bio: String? = null,
     val photoUrl: String? = null,
     val active: Boolean = true,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )

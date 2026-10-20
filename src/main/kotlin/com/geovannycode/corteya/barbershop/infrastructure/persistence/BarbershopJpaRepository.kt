@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component
 
 // Deliberately does not extend CrudRepository/JpaRepository: no unscoped operations.
 internal interface BarbershopJpaRepository : Repository<BarbershopEntity, UUID> {
+    fun findBySlugAndActiveTrue(slug: String): BarbershopEntity?
+
     @Query("select b from BarbershopEntity b where b.id = :barbershopId")
     fun findByBarbershopId(barbershopId: UUID): BarbershopEntity?
 }
@@ -16,5 +18,7 @@ internal interface BarbershopJpaRepository : Repository<BarbershopEntity, UUID> 
 internal class BarbershopPersistenceAdapter(
     private val repository: BarbershopJpaRepository,
 ) : BarbershopRepository {
+    override fun findBySlug(slug: String) = repository.findBySlugAndActiveTrue(slug)?.toDomain()
+
     override fun findById(barbershopId: UUID) = repository.findByBarbershopId(barbershopId)?.toDomain()
 }

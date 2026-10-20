@@ -25,18 +25,24 @@ abstract class PostgresIntegrationTest(
     protected val serverPort: Int
         get() = checkNotNull((context as WebServerApplicationContext).webServer).port
 
+    protected open fun customize(builder: SpringApplicationBuilder): SpringApplicationBuilder = builder
+
     @BeforeAll
     fun startApplication() {
         postgres.start()
         try {
-            val builder = SpringApplicationBuilder(CorteyaApiApplication::class.java)
+            val builder = SpringApplicationBuilder(CorteyaApiApplication::class.java, AuthTestConfiguration::class.java)
                 .web(if (web) WebApplicationType.SERVLET else WebApplicationType.NONE)
-            profile?.let { builder.profiles(it) }
-            context = builder.run(
+            builder.profiles(profile ?: "test")
+            context = customize(builder).run(
                 "--spring.datasource.url=${postgres.jdbcUrl}",
                 "--spring.datasource.username=${postgres.username}",
                 "--spring.datasource.password=${postgres.password}",
                 "--server.port=0",
+                "--booking.scheduling.enabled=false",
+                "--auth.otp.sender=test",
+                "--auth.otp.pepper=test-only-pepper-at-least-32-bytes-long",
+                "--auth.jwt.ephemeral=true",
             )
             context.autowireCapableBeanFactory.autowireBean(this)
         } catch (failure: Throwable) {

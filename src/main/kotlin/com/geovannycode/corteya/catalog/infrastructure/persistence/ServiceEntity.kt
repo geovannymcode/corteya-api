@@ -37,11 +37,11 @@ data class ServiceEntity(
 
     @field:Generated(event = [EventType.INSERT])
     @field:Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    val createdAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
 
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
-    val updatedAt: Instant = Instant.now(),
+    val updatedAt: Instant = Instant.EPOCH,
 ) {
     fun toDomain(): Service = Service(
         id = id,

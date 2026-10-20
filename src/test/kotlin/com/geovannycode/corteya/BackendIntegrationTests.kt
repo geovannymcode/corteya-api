@@ -120,7 +120,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     @Test
     fun `migrations run on real PostgreSQL with no dev data by default`() {
         flyway.validate()
-        assertEquals("1", flyway.info().current()?.version?.version)
+        assertEquals("3", flyway.info().current()?.version?.version)
         assertEquals(0, flyway.info().pending().size)
         assertEquals(0, jdbc.queryForObject("select count(*) from flyway_schema_history where script = 'R__demo_data.sql'", Int::class.java))
         assertEquals("UTC", jdbc.queryForObject("show timezone", String::class.java))
@@ -218,6 +218,9 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
         assertNotNull(customers.findById(shopId, customerId))
         assertNotNull(barberServices.findById(shopId, linkId))
         assertEquals(LocalTime.of(9, 0), hours.findById(shopId, hoursId)?.startTime)
+        assertEquals("09:00:00", jdbc.queryForObject(
+            "select start_time::text from working_hours where barbershop_id = ? and id = ?", String::class.java, shopId, hoursId,
+        ))
         assertEquals("Almuerzo", timeOffs.findById(shopId, offId)?.reason)
         assertNotNull(appointments.findById(shopId, appointmentId))
         assertNull(barbers.findById(otherShopId, barberId))
@@ -254,7 +257,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
             jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '3001234567', 'Invalid')", UUID.randomUUID(), shopId)
         }
         insertAppointment(reference = "R-4821")
-        assertConstraint("23505", "appointment_payment_reference_key") {
+        assertConstraint("23505", "uq_appointment_shop_reference") {
             insertAppointment(barber = secondBarberId, reference = "R-4821")
         }
     }
@@ -312,19 +315,22 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
                 })
             }
             gate.countDown()
-            assertEquals(listOf("23P01", "OK"), attempts.map { it.get(15, TimeUnit.SECONDS) }.sorted())
+            val outcomes = attempts.map { it.get(15, TimeUnit.SECONDS) }
+            assertEquals(1, outcomes.count { it == "OK" })
+            // PostgreSQL may abort a simultaneous GiST insert with a deadlock instead of 23P01.
+            assertTrue(outcomes.single { it != "OK" } in listOf("23P01", "40P01"))
         }
     }
 
     @Test
-    fun `health is the only exposed endpoint`() {
+    fun `health is the only exposed actuator endpoint`() {
         HttpClient.newHttpClient().use { client ->
             fun get(path: String) = client.send(HttpRequest.newBuilder(URI("http://localhost:$port$path")).GET().build(), HttpResponse.BodyHandlers.ofString())
             val health = get("/actuator/health")
             assertEquals(200, health.statusCode())
             assertEquals("{\"status\":\"UP\"}", health.body())
             listOf("/actuator", "/actuator/info", "/actuator/env", "/actuator/metrics", "/appointments", "/api/appointments", "/").forEach {
-                assertEquals(404, get(it).statusCode(), it)
+                assertEquals(if (it.startsWith("/api/")) 401 else 404, get(it).statusCode(), it)
             }
         }
     }

@@ -17,7 +17,9 @@ data class Appointment(
     val paymentReference: String,
     val holdExpiresAt: Instant? = null,
     val source: AppointmentSource = AppointmentSource.APP,
+    val publicToken: String = BookingCodes.publicToken(),
+
     val version: Long? = null,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )

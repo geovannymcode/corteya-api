@@ -14,6 +14,10 @@ data class Barbershop(
     val depositPercent: Int = 30,
     val cancelHours: Int = 24,
     val active: Boolean = true,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val slotStepMinutes: Int = 15,
+    val minLeadMinutes: Int = 30,
+    val bookingWindowDays: Int = 14,
+    val holdMinutes: Int = 15,
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )
