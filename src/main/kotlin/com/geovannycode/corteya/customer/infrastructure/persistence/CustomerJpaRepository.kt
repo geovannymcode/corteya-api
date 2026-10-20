@@ -2,7 +2,6 @@ package com.geovannycode.corteya.customer.infrastructure.persistence
 
 import com.geovannycode.corteya.customer.application.CustomerRepository
 import java.util.UUID
-import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.Repository
 import org.springframework.stereotype.Component
 

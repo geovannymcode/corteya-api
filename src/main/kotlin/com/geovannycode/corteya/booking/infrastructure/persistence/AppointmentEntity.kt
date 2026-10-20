@@ -3,6 +3,7 @@ package com.geovannycode.corteya.booking.infrastructure.persistence
 import com.geovannycode.corteya.booking.domain.Appointment
 import com.geovannycode.corteya.booking.domain.AppointmentSource
 import com.geovannycode.corteya.booking.domain.AppointmentStatus
+import com.geovannycode.corteya.booking.domain.BookingCodes
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -60,17 +61,20 @@ data class AppointmentEntity(
     @field:Column(name = "source", nullable = false, length = 16)
     val source: AppointmentSource = AppointmentSource.APP,
 
+    @field:Column(name = "public_token", nullable = false, length = 32, updatable = false)
+    val publicToken: String = BookingCodes.publicToken(),
+
     @field:Version
     @field:Column(name = "version", nullable = false)
     var version: Long? = null,
 
     @field:Generated(event = [EventType.INSERT])
     @field:Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    val createdAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
 
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
-    val updatedAt: Instant = Instant.now(),
+    val updatedAt: Instant = Instant.EPOCH,
 ) {
     fun toDomain(): Appointment = Appointment(
         id = id,
@@ -87,6 +91,7 @@ data class AppointmentEntity(
         holdExpiresAt = holdExpiresAt,
         source = source,
         version = version,
+        publicToken = publicToken,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

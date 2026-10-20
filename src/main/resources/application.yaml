@@ -13,6 +13,7 @@ spring:
       ddl-auto: validate
     properties:
       hibernate.jdbc.time_zone: UTC
+      hibernate.type.java_time_use_direct_jdbc: true
   flyway:
     locations: classpath:db/migration
   web:
@@ -34,3 +35,31 @@ management:
       show-details: never
       probes:
         enabled: false
+
+server:
+  forward-headers-strategy: none
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+    include-exception: false
+
+springdoc:
+  paths-to-match: /api/v1/**
+  swagger-ui:
+    disable-swagger-default-url: true
+
+auth:
+  otp:
+    pepper: ${AUTH_OTP_PEPPER:}
+    sender: ${AUTH_OTP_SENDER:whatsapp}
+  jwt:
+    ephemeral: false
+    private-key: ${AUTH_JWT_PRIVATE_KEY:}
+    kid: ${AUTH_JWT_KID:}
+  whatsapp:
+    token: ${WHATSAPP_TOKEN:}
+    graph-version: ${WHATSAPP_GRAPH_VERSION:}
+    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+    template: ${WHATSAPP_OTP_TEMPLATE:}
+    language: ${WHATSAPP_TEMPLATE_LANGUAGE:es_CO}

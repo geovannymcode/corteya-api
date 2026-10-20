@@ -10,6 +10,6 @@ data class TimeOff(
     val startsAt: Instant,
     val endsAt: Instant,
     val reason: String? = null,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )

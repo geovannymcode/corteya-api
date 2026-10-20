@@ -5,6 +5,9 @@ reviews:
   request_changes_workflow: true
   high_level_summary: true
   auto_review:
+    base_branches:
+      - "develop"
+      - "main"
     enabled: true
     drafts: false
   path_instructions:
@@ -20,6 +23,9 @@ reviews:
     - path: "src/main/resources/db/migration/**"
       instructions: |
         - Nunca modificar una migración ya aplicada; crear una nueva.
-        - Toda tabla nueva lleva barbershop_id e índice, salvo barbershop.
+        - Toda tabla nueva lleva barbershop_id e índice, salvo barbershop y las tablas
+          globales explícitas app_user, otp_challenge y refresh_token. Estas últimas
+          identifican usuarios y credenciales compartidos entre barberías; no añadirles
+          barbershop_id. Cualquier otra excepción requiere revisión explícita.
 chat:
   auto_reply: true

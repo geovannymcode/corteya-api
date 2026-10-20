@@ -44,13 +44,25 @@ data class BarbershopEntity(
     @field:Column(name = "active", nullable = false)
     val active: Boolean = true,
 
+    @field:Column(name = "slot_step_minutes", nullable = false)
+    val slotStepMinutes: Int = 15,
+
+    @field:Column(name = "min_lead_minutes", nullable = false)
+    val minLeadMinutes: Int = 30,
+
+    @field:Column(name = "booking_window_days", nullable = false)
+    val bookingWindowDays: Int = 14,
+
+    @field:Column(name = "hold_minutes", nullable = false)
+    val holdMinutes: Int = 15,
+
     @field:Generated(event = [EventType.INSERT])
     @field:Column(name = "created_at", nullable = false, insertable = false, updatable = false)
-    val createdAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
 
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
-    val updatedAt: Instant = Instant.now(),
+    val updatedAt: Instant = Instant.EPOCH,
 ) {
     fun toDomain(): Barbershop = Barbershop(
         id = id,
@@ -63,6 +75,10 @@ data class BarbershopEntity(
         depositPercent = depositPercent,
         cancelHours = cancelHours,
         active = active,
+        slotStepMinutes = slotStepMinutes,
+        minLeadMinutes = minLeadMinutes,
+        bookingWindowDays = bookingWindowDays,
+        holdMinutes = holdMinutes,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

@@ -11,6 +11,6 @@ data class Service(
     val durationMinutes: Int,
     val priceCop: Long,
     val active: Boolean = true,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )

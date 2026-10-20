@@ -18,7 +18,7 @@ class DevSeedIntegrationTests : PostgresIntegrationTest(profile = "dev") {
         flyway.validate()
         assertEquals(0, flyway.migrate().migrationsExecuted)
         val expected = mapOf("barbershop" to 1, "barber" to 3, "service" to 4,
-            "barber_service" to 12, "working_hours" to 18, "customer" to 0, "appointment" to 0)
+            "app_user" to 2, "staff_membership" to 2, "barber_service" to 12, "working_hours" to 18, "customer" to 0, "appointment" to 0)
         expected.forEach { (table, count) ->
             assertEquals(count, jdbc.queryForObject("select count(*) from $table", Int::class.java), table)
         }

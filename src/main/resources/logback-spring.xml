@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Mask the rendered message AND complete throwable, including nested causes.
+         nopex prevents Logback from appending a second, unmasked throwable. -->
+    <property scope="context" name="MASKED_LOG_PATTERN"
+              value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level %logger{36} - %replace(%msg%n%ex){'\+57([0-9]{3})[0-9]{4}([0-9]{3})(?![0-9])','+57$1****$2'}%nopex"/>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder><pattern>${MASKED_LOG_PATTERN}</pattern></encoder>
+    </appender>
+    <root level="INFO"><appender-ref ref="CONSOLE"/></root>
+</configuration>

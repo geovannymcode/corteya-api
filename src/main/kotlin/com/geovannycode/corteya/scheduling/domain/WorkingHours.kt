@@ -11,6 +11,6 @@ data class WorkingHours(
     val dayOfWeek: Int,
     val startTime: LocalTime,
     val endTime: LocalTime,
-    val createdAt: Instant = Instant.now(),
-    val updatedAt: Instant = Instant.now(),
+    val createdAt: Instant = Instant.EPOCH,
+    val updatedAt: Instant = Instant.EPOCH,
 )
