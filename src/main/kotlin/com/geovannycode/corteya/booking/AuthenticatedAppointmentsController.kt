@@ -4,7 +4,6 @@ import com.geovannycode.corteya.booking.dto.AgendaAppointmentResponse
 import com.geovannycode.corteya.booking.dto.AppointmentStatusResponse
 import com.geovannycode.corteya.booking.dto.MyAppointmentsResponse
 import com.geovannycode.corteya.booking.internal.AppointmentEntity
-import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.identity.AuthorizationPolicy
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
@@ -28,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/v1")
 @SecurityRequirement(name = "bearerAuth")
 class AuthenticatedAppointmentsController(
-    private val policy: AuthorizationPolicy, private val bookings: AppointmentRepository,
+    private val policy: AuthorizationPolicy, private val queries: BookingQueries,
     private val availability: AvailabilityService, private val clock: Clock,
 ) {
     @GetMapping("/me/appointments")
@@ -36,7 +35,7 @@ class AuthenticatedAppointmentsController(
     fun mine(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<MyAppointmentsResponse> {
         val user = policy.user(UUID.fromString(jwt.subject))
         val now = clock.instant()
-        val (upcoming, past) = bookings.findByUser(user.id).partition { it.endsAt > now }
+        val (upcoming, past) = queries.mine(user.id).partition { it.endsAt > now }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
             MyAppointmentsResponse(upcoming.map { it.response() }, past.asReversed().map { it.response() }),
         )
@@ -48,7 +47,7 @@ class AuthenticatedAppointmentsController(
         @RequestParam(required = false) barberId: UUID?): ResponseEntity<List<AgendaAppointmentResponse>> {
         val scope = policy.agenda(UUID.fromString(jwt.subject), slug, barberId)
         val zone = ZoneId.of(availability.shop(slug).timezone)
-        val rows = bookings.agenda(scope.barbershopId, scope.barberId, date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant())
+        val rows = queries.agenda(scope, date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant())
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows.map { AgendaAppointmentResponse(it.barberId, it.serviceId, it.response()) })
     }
 

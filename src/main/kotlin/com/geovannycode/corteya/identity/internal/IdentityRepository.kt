@@ -29,12 +29,21 @@ class IdentityRepository(private val jdbc: JdbcTemplate, private val customers: 
         "select barbershop_id, role, barber_id from staff_membership where user_id = ? and barbershop_id = ?",
         { r, _ -> r.membership() }, userId, barbershopId,
     ).singleOrNull()
-    fun linkVerifiedCustomers(userId: UUID, phone: String) { customers.linkVerifiedCustomers(userId, phone) }
+    fun customerBarbershops(userId: UUID): List<UUID> = jdbc.query(
+        "select distinct barbershop_id from customer_identity where user_id = ? order by barbershop_id",
+        { row, _ -> row.getObject(1, UUID::class.java) }, userId,
+    )
+
+    fun linkVerifiedCustomers(userId: UUID, phone: String) {
+        val shops = jdbc.query("select distinct barbershop_id from customer_identity where phone = ? order by barbershop_id",
+            { row, _ -> row.getObject(1, UUID::class.java) }, phone)
+        customers.linkVerifiedCustomers(userId, phone, shops)
+    }
 
     fun updateName(userId: UUID, name: String) { jdbc.update("update app_user set name = ? where id = ? and deleted_at is null", name, userId) }
     fun anonymize(userId: UUID, now: Instant) {
         jdbc.update("delete from otp_challenge where phone = (select phone from app_user where id = ?)", userId)
-        customers.anonymize(userId)
+        customers.anonymize(userId, customerBarbershops(userId))
         jdbc.update("delete from staff_membership where user_id = ?", userId)
         jdbc.update("update refresh_token set revoked_at = coalesce(revoked_at, ?) where user_id = ?", Timestamp.from(now), userId)
         jdbc.update("update app_user set name = 'Cliente eliminado', phone = null, platform_admin = false, deleted_at = ? where id = ? and deleted_at is null", Timestamp.from(now), userId)

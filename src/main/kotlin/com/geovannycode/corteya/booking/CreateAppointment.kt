@@ -1,5 +1,6 @@
 package com.geovannycode.corteya.booking
 
+import com.geovannycode.corteya.shared.TenantTransaction
 import com.geovannycode.corteya.booking.internal.AppointmentEntity
 import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.customer.CustomerService
@@ -9,7 +10,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 
 data class CreateAppointmentCommand(
     val barberId: UUID, val serviceId: UUID, val startsAt: Instant,
@@ -24,9 +24,14 @@ class CreateAppointment(
     private val clock: Clock,
     private val policy: AuthorizationPolicy,
     private val customers: CustomerService,
+    private val tenants: TenantTransaction,
 ) {
-    @Transactional
     fun create(slug: String, command: CreateAppointmentCommand): AppointmentEntity {
+        val shop = availability.shop(slug)
+        return tenants.execute(shop.id) { createInTenant(slug, command) }
+    }
+
+    private fun createInTenant(slug: String, command: CreateAppointmentCommand): AppointmentEntity {
         val selection = availability.select(slug, command.barberId, command.serviceId)
         val (shop, barber, service) = selection
         val customer = policy.bookingCustomer(command.userId)

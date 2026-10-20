@@ -1,5 +1,6 @@
 package com.geovannycode.corteya.booking
 
+import com.geovannycode.corteya.shared.TenantTransaction
 import com.geovannycode.corteya.barbershop.BarbershopService
 import com.geovannycode.corteya.barbershop.ShopDetails
 import com.geovannycode.corteya.booking.internal.AppointmentRepository
@@ -32,13 +33,21 @@ class AvailabilityService(
     private val timeOff: TimeOffService,
     private val bookings: AppointmentRepository,
     private val clock: Clock,
+    private val tenants: TenantTransaction,
 ) {
     fun shop(slug: String): ShopDetails = shops.findBySlug(slug) ?: BookingFailure.notFound()
 
-    fun services(slug: String): List<ServiceDetails> = services.findAll(shop(slug).id).filter { it.active }.sortedBy { it.name }
+    fun services(slug: String): List<ServiceDetails> {
+        val shop = shop(slug)
+        return tenants.execute(shop.id) { services.findAll(shop.id).filter { it.active }.sortedBy { it.name } }
+    }
 
     fun select(slug: String, barberId: UUID, serviceId: UUID): BookingSelection {
         val shop = shop(slug)
+        return tenants.execute(shop.id) { selectInTenant(shop, barberId, serviceId) }
+    }
+
+    private fun selectInTenant(shop: ShopDetails, barberId: UUID, serviceId: UUID): BookingSelection {
         val barber = barbers.findById(shop.id, barberId)?.takeIf { it.active } ?: BookingFailure.notFound()
         val service = services.findById(shop.id, serviceId)?.takeIf { it.active } ?: BookingFailure.notFound()
         if (barberServices.findAll(shop.id).none { it.barberId == barber.id && it.serviceId == service.id }) BookingFailure.notFound()
@@ -55,11 +64,15 @@ class AvailabilityService(
         if (date < today || date >= today.plusDays(shop.bookingWindowDays.toLong())) return Slots(emptyList(), emptyList())
         val start = date.atStartOfDay(zone).toInstant()
         val end = date.plusDays(1).atStartOfDay(zone).toInstant()
-        return generate(selection, date, zone, now, loadInputs(selection, start, end))
+        return tenants.execute(shop.id) { generate(selection, date, zone, now, loadInputs(selection, start, end)) }
     }
 
     fun barbers(slug: String, serviceId: UUID): List<BarberAvailability> {
         val shop = shop(slug)
+        return tenants.execute(shop.id) { barbersInTenant(shop, serviceId) }
+    }
+
+    private fun barbersInTenant(shop: ShopDetails, serviceId: UUID): List<BarberAvailability> {
         val service = services.findById(shop.id, serviceId)?.takeIf { it.active } ?: BookingFailure.notFound()
         val eligible = barberServices.findAll(shop.id).filter { it.serviceId == serviceId }.map { it.barberId }.toSet()
         val now = clock.instant()

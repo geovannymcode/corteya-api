@@ -58,9 +58,9 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
         barbershopId, barberId, Timestamp.from(now),
     )
 
-    fun expireAll(now: Instant): Int = jdbc.update(
+    fun expireForShop(barbershopId: UUID, now: Instant): Int = jdbc.update(
         """update appointment set status = 'EXPIRED', version = version + 1
-            where status = 'PENDING_PAYMENT' and hold_expires_at < ?""", Timestamp.from(now),
+            where barbershop_id = ? and status = 'PENDING_PAYMENT' and hold_expires_at < ?""", barbershopId, Timestamp.from(now),
     )
 
     fun findByUser(userId: UUID): List<AppointmentEntity> = jdbc.query(
