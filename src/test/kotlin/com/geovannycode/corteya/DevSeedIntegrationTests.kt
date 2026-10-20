@@ -1,10 +1,10 @@
 package com.geovannycode.corteya
 
+import kotlin.test.assertEquals
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
-import kotlin.test.assertEquals
 
 class DevSeedIntegrationTests : PostgresIntegrationTest(profile = "dev") {
     @Autowired

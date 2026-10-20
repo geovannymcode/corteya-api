@@ -31,7 +31,7 @@ abstract class PostgresIntegrationTest(
     fun startApplication() {
         postgres.start()
         try {
-            val builder = SpringApplicationBuilder(CorteyaApiApplication::class.java, AuthTestConfiguration::class.java)
+            val builder = SpringApplicationBuilder(CorteyaApplication::class.java, AuthTestConfiguration::class.java)
                 .web(if (web) WebApplicationType.SERVLET else WebApplicationType.NONE)
             builder.profiles(profile ?: "test")
             context = customize(builder).run(

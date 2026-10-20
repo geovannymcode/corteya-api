@@ -1,13 +1,13 @@
 package com.geovannycode.corteya.booking
 
-import org.flywaydb.core.Flyway
-import org.junit.jupiter.api.Test
-import org.testcontainers.postgresql.PostgreSQLContainer
-import org.testcontainers.utility.DockerImageName
 import com.geovannycode.corteya.TEST_POSTGRES_IMAGE
 import java.sql.DriverManager
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.flywaydb.core.Flyway
+import org.junit.jupiter.api.Test
+import org.testcontainers.postgresql.PostgreSQLContainer
+import org.testcontainers.utility.DockerImageName
 
 class MigrationUpgradeTests {
     @Test

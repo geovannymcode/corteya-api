@@ -1,16 +1,19 @@
 package com.geovannycode.corteya.identity
 
-import com.geovannycode.corteya.identity.domain.PhoneNumbers
-import com.geovannycode.corteya.identity.infrastructure.otp.LogOtpSender
-import com.geovannycode.corteya.identity.infrastructure.security.JwtConfiguration
-import com.geovannycode.corteya.identity.infrastructure.security.SecretDigests
-import org.junit.jupiter.api.Test
-import org.springframework.mock.env.MockEnvironment
+import com.geovannycode.corteya.identity.dto.RefreshBody
+import com.geovannycode.corteya.identity.dto.RequestOtpBody
+import com.geovannycode.corteya.identity.dto.TokenPair
+import com.geovannycode.corteya.identity.dto.VerifyOtpBody
+import com.geovannycode.corteya.identity.internal.JwtConfiguration
+import com.geovannycode.corteya.identity.internal.LogOtpSender
+import com.geovannycode.corteya.identity.internal.SecretDigests
 import java.security.KeyPairGenerator
 import java.security.interfaces.RSAPublicKey
 import java.util.Base64
 import java.util.UUID
 import kotlin.test.*
+import org.junit.jupiter.api.Test
+import org.springframework.mock.env.MockEnvironment
 
 class IdentitySecurityTests {
     @Test
@@ -19,10 +22,10 @@ class IdentitySecurityTests {
         val code = "123456"
         val token = "private-refresh-token"
         val values = listOf(
-            com.geovannycode.corteya.identity.infrastructure.web.RequestOtpBody(phone).toString(),
-            com.geovannycode.corteya.identity.infrastructure.web.VerifyOtpBody(phone, code).toString(),
-            com.geovannycode.corteya.identity.infrastructure.web.RefreshBody(token).toString(),
-            com.geovannycode.corteya.identity.application.TokenPair("private-access-token", token).toString(),
+            com.geovannycode.corteya.identity.dto.RequestOtpBody(phone).toString(),
+            com.geovannycode.corteya.identity.dto.VerifyOtpBody(phone, code).toString(),
+            com.geovannycode.corteya.identity.dto.RefreshBody(token).toString(),
+            com.geovannycode.corteya.identity.dto.TokenPair("private-access-token", token).toString(),
         )
         values.forEach { text -> assertTrue(listOf(phone, code, token, "private-access-token").none(text::contains)) }
     }

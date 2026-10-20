@@ -3,16 +3,16 @@ package com.geovannycode.corteya.identity
 import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.booking.FixedBookingTestConfiguration
 import com.geovannycode.corteya.booking.MutableTestClock
-import com.geovannycode.corteya.identity.infrastructure.scheduling.OtpRetentionJob
+import com.geovannycode.corteya.identity.internal.OtpRetentionJob
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.UUID
+import kotlin.test.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.jdbc.core.JdbcTemplate
-import kotlin.test.assertEquals
 
 class CredentialRetentionIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var jdbc: JdbcTemplate
