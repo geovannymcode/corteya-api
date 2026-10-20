@@ -90,3 +90,13 @@ description: Rule set for Kotlin coding best practices in Spring Boot applicatio
 11. Leverage Kotlin’s standard library features like `lazy`, `observable`, `infix`, and operator overloading to write concise, expressive, and idiomatic code.
 12. Use immutable data class entities with `val` fields and Kotlin’s JPA plugin to satisfy JPA requirements while keeping your models safe and thread-friendly.
 13. Write unit tests for your business logic using dependency injection and pure functions to make testing straightforward and independent from Spring’s context.
+
+### Tenant Isolation and Global Identity Tables
+
+- Every new tenant-owned table must include `barbershop_id` and its index.
+- Explicit exceptions: `barbershop` is the tenant root; `app_user`, `otp_challenge`,
+  and `refresh_token` are global identity/credential tables shared across barbershops.
+  Do not add `barbershop_id` to those three global tables.
+- Access to global identity data must be scoped by the authenticated user, a verified
+  phone number, or a secret credential hash. Staff membership remains tenant-owned.
+- Any other global-table exception requires explicit review; do not generalize it.
