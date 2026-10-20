@@ -3,6 +3,7 @@ package com.geovannycode.corteya.shared.infrastructure.web
 import com.geovannycode.corteya.booking.application.BookingFailure
 import com.geovannycode.corteya.identity.application.AuthFailure
 import java.sql.SQLException
+import org.slf4j.LoggerFactory
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.HttpStatus
@@ -18,6 +19,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 @RestControllerAdvice
 class ApiExceptionHandler {
+    private val logger = LoggerFactory.getLogger(javaClass)
+
     @ExceptionHandler(AuthFailure::class)
     fun auth(failure: AuthFailure): ProblemDetail = problem(failure.status, failure.message)
 
@@ -52,6 +55,7 @@ class ApiExceptionHandler {
                 else -> "No pudimos procesar la solicitud"
             })
         }
+        logger.error("Error inesperado procesando la solicitud", failure)
         return problem(500, "No pudimos completar la solicitud, intenta de nuevo más tarde")
     }
 
