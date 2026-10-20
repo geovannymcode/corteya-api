@@ -45,4 +45,43 @@ class AvailabilityServiceTests {
         verifyNoInteractions(hours, timeOff, bookings)
     }
 
+    @Test
+    fun `next availability matches daily generation with one query per input and barber`() {
+        val staff = listOf("Ana", "Beto", "Carlos").map { Barber(barbershopId = shop.id, name = it) }
+        `when`(shops.findBySlug(shop.slug)).thenReturn(shop)
+        `when`(services.findById(shop.id, service.id)).thenReturn(service)
+        `when`(barbers.findAll(shop.id)).thenReturn(staff)
+        `when`(assignments.findAll(shop.id)).thenReturn(staff.map {
+            BarberService(barbershopId = shop.id, barberId = it.id, serviceId = service.id)
+        })
+        val windowStart = today.atStartOfDay(zone).toInstant()
+        val windowEnd = today.plusDays(14).atStartOfDay(zone).toInstant()
+        val expected = staff.mapIndexed { index, barber ->
+            val weekly = (1..6).map { WorkingHours(barbershopId = shop.id, barberId = barber.id,
+                dayOfWeek = it, startTime = LocalTime.of(9, 0), endTime = LocalTime.of(20, 0)) }
+            val blocks = listOf(TimeOff(barbershopId = shop.id, barberId = barber.id,
+                startsAt = windowStart, endsAt = if (index == 2) windowEnd else today.plusDays(1).atStartOfDay(zone).toInstant()))
+            val occupied = listOf(OccupyingAppointment(
+                TimeInterval(today.plusDays(1).atTime(9, 0).atZone(zone).toInstant(),
+                    today.plusDays(1).atTime(10, 0).atZone(zone).toInstant()), AppointmentStatus.CONFIRMED, null))
+            `when`(hours.findForBarber(shop.id, barber.id)).thenReturn(weekly)
+            `when`(timeOff.findOverlapping(shop.id, barber.id, windowStart, windowEnd)).thenReturn(blocks)
+            `when`(bookings.occupying(shop.id, barber.id, windowStart, windowEnd)).thenReturn(occupied)
+            // Reference: same daily inputs and pure generator as the original implementation.
+            (0 until 14).asSequence().mapNotNull { offset ->
+                val date = today.plusDays(offset.toLong())
+                val day = TimeInterval(date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant())
+                SlotGenerator.generate(weekly, blocks.map { TimeInterval(it.startsAt, it.endsAt) }.filter { it.overlaps(day) },
+                    occupied.filter { it.interval.overlaps(day) }, 30, date, zone, BookingRules(15, 30, 14), now).all().firstOrNull()
+            }.firstOrNull()
+        }
+        assertEquals(listOf(Instant.parse("2026-10-20T15:00:00Z"), Instant.parse("2026-10-20T15:00:00Z"), null), expected)
+        assertEquals(expected, subject.barbers(shop.slug, service.id).map { it.nextAvailableAt })
+        staff.forEach { barber ->
+            verify(hours, times(1)).findForBarber(shop.id, barber.id)
+            verify(timeOff, times(1)).findOverlapping(shop.id, barber.id, windowStart, windowEnd)
+            verify(bookings, times(1)).occupying(shop.id, barber.id, windowStart, windowEnd)
+        }
+        verifyNoMoreInteractions(hours, timeOff, bookings)
+    }
 }

@@ -13,6 +13,8 @@ import com.geovannycode.corteya.scheduling.domain.BookingRules
 import com.geovannycode.corteya.scheduling.domain.SlotGenerator
 import com.geovannycode.corteya.scheduling.domain.Slots
 import com.geovannycode.corteya.scheduling.domain.TimeInterval
+import com.geovannycode.corteya.scheduling.domain.OccupyingAppointment
+import com.geovannycode.corteya.scheduling.domain.WorkingHours
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -50,18 +52,13 @@ class AvailabilityService(
         slots(select(slug, barberId, serviceId), date, clock.instant())
 
     fun slots(selection: BookingSelection, date: LocalDate, now: Instant): Slots {
-        val (shop, barber, service) = selection
+        val shop = selection.shop
         val zone = ZoneId.of(shop.timezone)
         val today = now.atZone(zone).toLocalDate()
         if (date < today || date >= today.plusDays(shop.bookingWindowDays.toLong())) return Slots(emptyList(), emptyList())
         val start = date.atStartOfDay(zone).toInstant()
         val end = date.plusDays(1).atStartOfDay(zone).toInstant()
-        return SlotGenerator.generate(
-            hours.findForBarber(shop.id, barber.id),
-            timeOff.findOverlapping(shop.id, barber.id, start, end).map { TimeInterval(it.startsAt, it.endsAt) },
-            bookings.occupying(shop.id, barber.id, start, end), service.durationMinutes, date, zone,
-            BookingRules(shop.slotStepMinutes, shop.minLeadMinutes, shop.bookingWindowDays), now,
-        )
+        return generate(selection, date, zone, now, loadInputs(selection, start, end))
     }
 
     fun barbers(slug: String, serviceId: UUID): List<BarberAvailability> {
@@ -69,12 +66,41 @@ class AvailabilityService(
         val service = services.findById(shop.id, serviceId)?.takeIf { it.active } ?: BookingFailure.notFound()
         val eligible = barberServices.findAll(shop.id).filter { it.serviceId == serviceId }.map { it.barberId }.toSet()
         val now = clock.instant()
-        val today = now.atZone(ZoneId.of(shop.timezone)).toLocalDate()
+        val zone = ZoneId.of(shop.timezone)
+        val today = now.atZone(zone).toLocalDate()
+        val start = today.atStartOfDay(zone).toInstant()
+        val end = today.plusDays(shop.bookingWindowDays.toLong()).atStartOfDay(zone).toInstant()
         return barbers.findAll(shop.id).filter { it.active && it.id in eligible }.sortedBy { it.name }.map { barber ->
             val selection = BookingSelection(shop, barber, service)
+            val inputs = loadInputs(selection, start, end)
             val next = (0 until shop.bookingWindowDays).asSequence()
-                .map { today.plusDays(it.toLong()) }.mapNotNull { slots(selection, it, now).all().firstOrNull() }.firstOrNull()
+                .map { today.plusDays(it.toLong()) }
+                .mapNotNull { generate(selection, it, zone, now, inputs).all().firstOrNull() }.firstOrNull()
             BarberAvailability(barber, next)
         }
     }
+
+    private fun loadInputs(selection: BookingSelection, start: Instant, end: Instant): AvailabilityInputs {
+        val shopId = selection.shop.id
+        val barberId = selection.barber.id
+        return AvailabilityInputs(
+            hours.findForBarber(shopId, barberId),
+            timeOff.findOverlapping(shopId, barberId, start, end).map { TimeInterval(it.startsAt, it.endsAt) },
+            bookings.occupying(shopId, barberId, start, end),
+        )
+    }
+
+    private fun generate(selection: BookingSelection, date: LocalDate, zone: ZoneId, now: Instant, inputs: AvailabilityInputs): Slots {
+        val shop = selection.shop
+        val day = TimeInterval(date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant())
+        return SlotGenerator.generate(
+            inputs.hours.filter { it.dayOfWeek == date.dayOfWeek.value }, inputs.timeOff.filter { it.overlaps(day) },
+            inputs.appointments.filter { it.interval.overlaps(day) }, selection.service.durationMinutes, date, zone,
+            BookingRules(shop.slotStepMinutes, shop.minLeadMinutes, shop.bookingWindowDays), now,
+        )
+    }
+
+    private data class AvailabilityInputs(
+        val hours: List<WorkingHours>, val timeOff: List<TimeInterval>, val appointments: List<OccupyingAppointment>,
+    )
 }
