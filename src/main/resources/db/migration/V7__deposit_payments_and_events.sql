@@ -1,3 +1,5 @@
+ALTER TABLE appointment ADD CONSTRAINT uq_appointment_shop_id UNIQUE (barbershop_id, id);
+
 CREATE TABLE deposit_payment (
     id uuid PRIMARY KEY,
     barbershop_id uuid NOT NULL REFERENCES barbershop(id),
@@ -8,6 +10,8 @@ CREATE TABLE deposit_payment (
     attempt integer NOT NULL CHECK (attempt > 0),
     status text NOT NULL CHECK (status IN ('PENDING', 'APPROVED', 'DECLINED', 'VOIDED', 'ERROR', 'EXPIRED', 'LATE_PAYMENT')),
     provider_transaction_id text,
+    wompi_webhook_id text,
+    wompi_settings jsonb,
     confirmed_by_user_id uuid REFERENCES app_user(id),
     confirmed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -18,6 +22,7 @@ CREATE TABLE deposit_payment (
     UNIQUE (method, provider_transaction_id),
     FOREIGN KEY (barbershop_id, appointment_id) REFERENCES appointment(barbershop_id, id)
 );
+CREATE INDEX idx_deposit_payment_webhook ON deposit_payment(barbershop_id, wompi_webhook_id) WHERE wompi_webhook_id IS NOT NULL;
 CREATE INDEX idx_deposit_payment_appointment ON deposit_payment(barbershop_id, appointment_id);
 CREATE TABLE deposit_event (
     id uuid PRIMARY KEY,
@@ -40,7 +45,9 @@ BEGIN
     FOREACH tenant_table IN ARRAY ARRAY['deposit_payment', 'deposit_event'] LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tenant_table);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', tenant_table);
-        EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (barbershop_id = NULLIF(current_setting(''app.barbershop_id'', true), )::uuid) WITH CHECK (barbershop_id = NULLIF(current_setting(app.barbershop_id, true), )::uuid)', tenant_table);
+        EXECUTE format($policy$CREATE POLICY tenant_isolation ON %I
+            USING (barbershop_id = NULLIF(current_setting('app.barbershop_id', true), '')::uuid)
+            WITH CHECK (barbershop_id = NULLIF(current_setting('app.barbershop_id', true), '')::uuid)$policy$, tenant_table);
         EXECUTE format('CREATE TRIGGER trg_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()', tenant_table);
         EXECUTE format('CREATE TRIGGER trg_tenant BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION prevent_tenant_change()', tenant_table);
     END LOOP;
