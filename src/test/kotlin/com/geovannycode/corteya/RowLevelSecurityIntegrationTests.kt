@@ -166,6 +166,20 @@ class RowLevelSecurityIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `expiration continues with the next shop after a database failure`() {
+        val (failingShop, nextShop) = listOf(shopA, shopB).sortedBy { it.toString() }
+        // Overflow version + 1 in the first shop's UPDATE, forcing a real PostgreSQL rollback.
+        inShop(failingShop) { jdbc.update("update appointment set version = ?", Long.MAX_VALUE) }
+        job.expire()
+        assertEquals("PENDING_PAYMENT", inShop(failingShop) {
+            jdbc.queryForObject("select status from appointment", String::class.java)
+        })
+        assertEquals("EXPIRED", inShop(nextShop) {
+            jdbc.queryForObject("select status from appointment", String::class.java)
+        })
+    }
+
+    @Test
     fun `tenant visits participate atomically in an outer identity transaction`() {
         assertFailsWith<IllegalStateException> { transactions.executeWithoutResult {
             inShop(shopA) { jdbc.update("update customer set name = 'Changed'") }
