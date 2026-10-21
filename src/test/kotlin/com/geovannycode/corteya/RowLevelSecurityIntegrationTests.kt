@@ -19,6 +19,7 @@ class RowLevelSecurityIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var transactions: org.springframework.transaction.support.TransactionTemplate
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var clock: MutableTestClock
+    @Autowired private lateinit var bookings: com.geovannycode.corteya.booking.internal.AppointmentRepository
     @Autowired private lateinit var job: HoldExpirationJob
     private val shopA = UUID.randomUUID()
     private val shopB = UUID.randomUUID()
@@ -69,6 +70,20 @@ class RowLevelSecurityIntegrationTests : PostgresIntegrationTest() {
         }
         assertRlsViolation { inShop(shopA) { insertAppointment(shopB, barberB, serviceB, customerB) } }
         inShop(shopB) { assertEquals(1, jdbc.queryForList("SELECT * FROM appointment").size) }
+    }
+
+    @Test
+    fun `booking queries require both the explicit shop filter and RLS context`() {
+        val user = UUID.randomUUID()
+        jdbc.update("insert into app_user (id, phone) values (?, '+573001234567')", user)
+        inShop(shopA) {
+            jdbc.update("update customer set user_id = ?", user)
+            val token = checkNotNull(jdbc.queryForObject("select public_token from appointment", String::class.java))
+            assertEquals(1, bookings.findByUser(shopA, user).size)
+            assertNotNull(bookings.findByPublicToken(shopA, token))
+            assertTrue(bookings.findByUser(shopB, user).isEmpty())
+            assertNull(bookings.findByPublicToken(shopB, token))
+        }
     }
 
     @Test

@@ -63,9 +63,9 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
             where barbershop_id = ? and status = 'PENDING_PAYMENT' and hold_expires_at < ?""", barbershopId, Timestamp.from(now),
     )
 
-    fun findByUser(userId: UUID): List<AppointmentEntity> = jdbc.query(
+    fun findByUser(barbershopId: UUID, userId: UUID): List<AppointmentEntity> = jdbc.query(
         """select a.* from appointment a join customer c on c.barbershop_id = a.barbershop_id and c.id = a.customer_id
-            where c.user_id = ? order by a.starts_at, a.id""", { row, _ -> row.toAppointment() }, userId,
+            where a.barbershop_id = ? and c.user_id = ? order by a.starts_at, a.id""", { row, _ -> row.toAppointment() }, barbershopId, userId,
     )
 
     fun agenda(barbershopId: UUID, barberId: UUID?, startsAt: Instant, endsAt: Instant): List<AppointmentEntity> = jdbc.query(
@@ -74,8 +74,8 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
         { row, _ -> row.toAppointment() }, barbershopId, Timestamp.from(endsAt), Timestamp.from(startsAt), barberId, barberId,
     )
 
-    fun findByPublicToken(publicToken: String): AppointmentEntity? = jdbc.query(
-        "select * from appointment where public_token = ?", { row, _ -> row.toAppointment() }, publicToken,
+    fun findByPublicToken(barbershopId: UUID, publicToken: String): AppointmentEntity? = jdbc.query(
+        "select * from appointment where barbershop_id = ? and public_token = ?", { row, _ -> row.toAppointment() }, barbershopId, publicToken,
     ).singleOrNull()
 
     private fun ResultSet.toAppointment() = AppointmentEntity(
