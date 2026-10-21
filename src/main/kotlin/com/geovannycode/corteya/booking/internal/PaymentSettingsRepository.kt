@@ -18,7 +18,7 @@ class PaymentSettingsRepository(private val jdbc: JdbcTemplate) {
 
     fun credentialsInvalid(shop: UUID, webhookId: String, invalid: Boolean) {
         jdbc.update("""update barbershop_payment_settings set wompi_credentials_invalid = ?
-            where barbershop_id = ? and wompi_webhook_id = ?""", invalid, shop, webhookId)
+            where barbershop_id = ? and wompi_webhook_id = ? and wompi_credentials_invalid is distinct from ?""", invalid, shop, webhookId, invalid)
     }
 
     fun save(s: PaymentSettings) {

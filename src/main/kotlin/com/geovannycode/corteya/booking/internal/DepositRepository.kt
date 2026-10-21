@@ -51,6 +51,10 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
         event(p, p.status, status, source, providerStatus, now)
     }
 
+    fun discrepancy(payment: DepositPayment, reason: DepositDiscrepancyReason, now: Instant) {
+        event(payment, payment.status, payment.status, DepositEventSource.WEBHOOK, null, now, reason)
+    }
+
     fun expirePending(shop: UUID, now: Instant) {
         val rows = jdbc.query("""select d.* from deposit_payment d join appointment a
             on a.barbershop_id = d.barbershop_id and a.id = d.appointment_id
@@ -60,10 +64,10 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
     }
 
     private fun event(p: DepositPayment, from: DepositStatus?, to: DepositStatus, source: DepositEventSource,
-        providerStatus: String?, now: Instant) {
-        jdbc.update("""insert into deposit_event (id, barbershop_id, deposit_payment_id, from_status, to_status, source, provider_status, created_at, updated_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?)""", UUID.randomUUID(), p.barbershopId, p.id, from?.name, to.name, source.name,
-            providerStatus, Timestamp.from(now), Timestamp.from(now))
+        providerStatus: String?, now: Instant, reason: DepositDiscrepancyReason? = null) {
+        jdbc.update("""insert into deposit_event (id, barbershop_id, deposit_payment_id, from_status, to_status, source, provider_status, created_at, updated_at, reason)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", UUID.randomUUID(), p.barbershopId, p.id, from?.name, to.name, source.name,
+            providerStatus, Timestamp.from(now), Timestamp.from(now), reason?.name)
     }
 
     private fun ResultSet.payment() = DepositPayment(getObject("id", UUID::class.java), getObject("barbershop_id", UUID::class.java),

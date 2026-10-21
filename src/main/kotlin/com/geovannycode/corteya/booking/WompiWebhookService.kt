@@ -31,30 +31,60 @@ class WompiWebhookService(
         val transactionId = notified.path("id").asString("")
         // All network I/O finishes before obtaining any appointment/payment locks.
         val verified = gateway.transaction(configuration, transactionId)
-        val payment = tenants.execute(shop) { deposits.byReference(shop, verified.path("reference").asString("")) }
-            ?: throw ApiFailure(400, "No encontramos la referencia del pago")
-        val cents = Math.multiplyExact(payment.amountCop, 100L)
-        if (payment.method != DepositMode.WOMPI || verified.path("id").asString("") != transactionId ||
-            verified.path("reference").asString("") != notified.path("reference").asString("") ||
-            verified.path("currency").asString("") != "COP" || notified.path("currency").asString("") != "COP" ||
-            !verified.path("amount_in_cents").isIntegralNumber || verified.path("amount_in_cents").asLong() != cents ||
-            !notified.path("amount_in_cents").isIntegralNumber || notified.path("amount_in_cents").asLong() != cents ||
-            verified.path("status").asString("") != notified.path("status").asString("")) {
-            throw ApiFailure(400, "La transacción no coincide con el pago esperado")
+        val payment = tenants.execute(shop) {
+            deposits.byReference(shop, verified.path("reference").asString(""))
+                ?: deposits.byReference(shop, notified.path("reference").asString(""))
         }
+        if (payment == null) {
+            if (verified.path("id").asString("") != transactionId) invalidTransaction()
+            logger.warn("Transacción Wompi ajena a CorteYa; barbería={}; transacción={}", shop, transactionId)
+            return
+        }
+        discrepancy(payment, transactionId, notified, verified)?.let { reject(payment, it) }
         val status = verified.path("status").asString("")
         if (status == "APPROVED") {
             confirmation.confirm(shop, payment.id, DepositEventSource.WEBHOOK, transactionId = transactionId)
-        } else if (status in listOf("DECLINED", "VOIDED", "ERROR")) tenants.execute(shop) {
-            val a = bookings.lock(shop, payment.appointmentId) ?: BookingFailure.notFound()
-            val current = deposits.find(shop, payment.id) ?: BookingFailure.notFound()
-            if (current.providerTransactionId != null && current.providerTransactionId != transactionId) {
-                throw ApiFailure(400, "La transacción no coincide con el pago esperado")
+        } else if (status in listOf("DECLINED", "VOIDED", "ERROR")) {
+            val mismatch = tenants.execute(shop) {
+                val a = bookings.lock(shop, payment.appointmentId) ?: BookingFailure.notFound()
+                val current = deposits.find(shop, payment.id) ?: BookingFailure.notFound()
+                if (current.providerTransactionId != null && current.providerTransactionId != transactionId) {
+                    return@execute DepositDiscrepancyReason.TRANSACTION_MISMATCH
+                }
+                if (current.status in listOf(DepositStatus.PENDING, DepositStatus.EXPIRED) && a.status == AppointmentStatus.PENDING_PAYMENT) {
+                    deposits.transition(current, DepositStatus.valueOf(status), DepositEventSource.WEBHOOK, clock.instant(),
+                        transactionId = transactionId, providerStatus = status)
+                }
+                null
             }
-            if (current.status in listOf(DepositStatus.PENDING, DepositStatus.EXPIRED) && a.status == AppointmentStatus.PENDING_PAYMENT) {
-                deposits.transition(current, DepositStatus.valueOf(status), DepositEventSource.WEBHOOK, clock.instant(),
-                    transactionId = transactionId, providerStatus = status)
-            }
+            mismatch?.let { reject(payment, it) }
         }
     }
+
+    private fun discrepancy(payment: DepositPayment, transactionId: String, notified: JsonNode, verified: JsonNode): DepositDiscrepancyReason? {
+        val cents = Math.multiplyExact(payment.amountCop, 100L)
+        return when {
+            payment.method != DepositMode.WOMPI -> DepositDiscrepancyReason.METHOD_MISMATCH
+            verified.path("id").asString("") != transactionId ||
+                (payment.providerTransactionId != null && payment.providerTransactionId != transactionId) -> DepositDiscrepancyReason.TRANSACTION_MISMATCH
+            verified.path("reference").asString("") != notified.path("reference").asString("") -> DepositDiscrepancyReason.REFERENCE_MISMATCH
+            verified.path("currency").asString("") != "COP" || notified.path("currency").asString("") != "COP" -> DepositDiscrepancyReason.CURRENCY_MISMATCH
+            !verified.path("amount_in_cents").isIntegralNumber || verified.path("amount_in_cents").asLong() != cents ||
+                !notified.path("amount_in_cents").isIntegralNumber || notified.path("amount_in_cents").asLong() != cents -> DepositDiscrepancyReason.AMOUNT_MISMATCH
+            verified.path("status").asString("") != notified.path("status").asString("") -> DepositDiscrepancyReason.STATUS_MISMATCH
+            else -> null
+        }
+    }
+
+    private fun reject(payment: DepositPayment, reason: DepositDiscrepancyReason): Nothing {
+        // Commit the audit before throwing the HTTP error, so the rejection cannot roll it back.
+        tenants.execute(payment.barbershopId) {
+            bookings.lock(payment.barbershopId, payment.appointmentId) ?: BookingFailure.notFound()
+            val current = deposits.find(payment.barbershopId, payment.id) ?: BookingFailure.notFound()
+            deposits.discrepancy(current, reason, clock.instant())
+        }
+        invalidTransaction()
+    }
+
+    private fun invalidTransaction(): Nothing = throw ApiFailure(400, "La transacción no coincide con el pago esperado")
 }

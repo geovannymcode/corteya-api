@@ -336,6 +336,61 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     }
 
     @Test
+    fun `authentic foreign sale returns 200 logs only tenant and transaction and changes no rows`() {
+        configureWompi()
+        val created = create()
+        val before = inShop(shop) {
+            listOf("appointment", "deposit_payment", "deposit_event", "barbershop_payment_settings").map { table ->
+                jdbc.queryForList("select * from $table where barbershop_id = ? order by id", shop)
+            }
+        }
+        val logger = org.slf4j.LoggerFactory.getLogger(WompiWebhookService::class.java) as ch.qos.logback.classic.Logger
+        val appender = ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>().also { it.start(); logger.addAppender(it) }
+        try {
+            assertEquals(200, webhook(created, foreignReference = "venta-persona@example.com").statusCode())
+            val log = appender.list.single { it.level == ch.qos.logback.classic.Level.WARN }
+            assertEquals("Transacción Wompi ajena a CorteYa; barbería=$shop; transacción=tx-1", log.formattedMessage)
+            assertNull(log.throwableProxy)
+        } finally { logger.detachAppender(appender); appender.stop() }
+        val after = inShop(shop) {
+            listOf("appointment", "deposit_payment", "deposit_event", "barbershop_payment_settings").map { table ->
+                jdbc.queryForList("select * from $table where barbershop_id = ? order by id", shop)
+            }
+        }
+        assertEquals(before, after)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["amount_in_cents", "currency", "status", "reference"])
+    fun `own reference discrepancies persist their safe audit reason despite the HTTP error`(field: String) {
+        configureWompi()
+        val created = create()
+        val value: Any = when (field) {
+            "amount_in_cents" -> 1L
+            "currency" -> "USD"
+            "status" -> "DECLINED"
+            else -> "unknown-api-reference"
+        }
+        assertEquals(400, webhook(created, overrides = mapOf(field to value)).statusCode())
+        assertEquals("PENDING_PAYMENT", appointmentStatus(appointmentId(created)))
+        assertEquals("PENDING", depositStatus(appointmentId(created)))
+        val reason = when (field) {
+            "amount_in_cents" -> "AMOUNT_MISMATCH"
+            "currency" -> "CURRENCY_MISMATCH"
+            "status" -> "STATUS_MISMATCH"
+            else -> "REFERENCE_MISMATCH"
+        }
+        inShop(shop) {
+            val event = jdbc.queryForMap("select from_status, to_status, source, reason, provider_status from deposit_event where barbershop_id = ? and reason is not null", shop)
+            assertEquals("PENDING", event["from_status"])
+            assertEquals("PENDING", event["to_status"])
+            assertEquals("WEBHOOK", event["source"])
+            assertEquals(reason, event["reason"])
+            assertNull(event["provider_status"])
+        }
+    }
+
+    @Test
     fun `declined Wompi attempt can be retried only by the customer while its hold lives`() {
         configureWompi()
         val created = create()
@@ -450,9 +505,9 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     private fun appointmentStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select status from appointment where barbershop_id = ? and id = ?", String::class.java, shop, id)) }
     private fun depositStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select status from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, id)) }
 
-    private fun webhook(created: JsonNode, valid: Boolean = true, status: String = "APPROVED", transaction: String = "tx-1", overrides: Map<String, Any> = emptyMap(), webhookIdOverride: String? = null, apiResponse: ResponseCreator? = null): HttpResponse<String> {
+    private fun webhook(created: JsonNode, valid: Boolean = true, status: String = "APPROVED", transaction: String = "tx-1", overrides: Map<String, Any> = emptyMap(), webhookIdOverride: String? = null, apiResponse: ResponseCreator? = null, foreignReference: String? = null): HttpResponse<String> {
         val reference = inShop(shop) { checkNotNull(jdbc.queryForObject("select reference from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, appointmentId(created))) }
-        val tx = mapOf("id" to transaction, "status" to status, "amount_in_cents" to 1200000L, "currency" to "COP", "reference" to reference)
+        val tx = mapOf("id" to transaction, "status" to status, "amount_in_cents" to 1200000L, "currency" to "COP", "reference" to (foreignReference ?: reference))
         val text = "${transaction}${status}1200000${now.epochSecond}test_events_Events"
         val checksum = java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.toByteArray()))
         val event = mapOf("event" to "transaction.updated", "environment" to "test", "timestamp" to now.epochSecond,
