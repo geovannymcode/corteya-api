@@ -22,7 +22,7 @@ class CustomerService(private val jdbc: JdbcTemplate, private val tenants: Tenan
 
     fun linkVerifiedCustomers(userId: UUID, phone: String, barbershops: List<UUID>) {
         barbershops.forEach { id -> tenants.execute(id) {
-            jdbc.update("update customer set user_id = ? where phone = ? and user_id is null", userId, phone)
+            jdbc.update("update customer set user_id = ? where phone = ? and user_id is null and barbershop_id = ?", userId, phone, id)
         } }
     }
 
@@ -32,7 +32,7 @@ class CustomerService(private val jdbc: JdbcTemplate, private val tenants: Tenan
 
     fun anonymize(userId: UUID, barbershops: List<UUID>) {
         barbershops.forEach { id -> tenants.execute(id) {
-            jdbc.update("update customer set name = 'Cliente eliminado', phone = null where user_id = ?", userId)
+            jdbc.update("update customer set name = 'Cliente eliminado', phone = null where user_id = ? and barbershop_id = ?", userId, id)
         } }
     }
 }
