@@ -1,5 +1,6 @@
 package com.geovannycode.corteya.identity
 
+import com.geovannycode.corteya.shared.TenantTransaction
 import com.geovannycode.corteya.barbershop.BarbershopService
 import com.geovannycode.corteya.catalog.BarberDirectoryService
 import com.geovannycode.corteya.identity.internal.IdentityRepository
@@ -14,8 +15,15 @@ class AuthorizationPolicy(
     private val identities: IdentityRepository,
     private val shops: BarbershopService,
     private val barbers: BarberDirectoryService,
+    private val tenants: TenantTransaction,
 ) {
     fun user(userId: UUID): AppUser = identities.findUser(userId) ?: AuthFailure.unauthenticated()
+
+    fun barbershops(userId: UUID): List<UUID> {
+        user(userId)
+        return (identities.customerBarbershops(userId) + identities.memberships(userId).map { it.barbershopId })
+            .distinct().sortedBy { it.toString() }
+    }
 
     // Called within the booking transaction: serialize creation with account deletion.
     fun bookingCustomer(userId: UUID): AppUser = (identities.lockUser(userId) ?: AuthFailure.unauthenticated()).also {
@@ -37,7 +45,9 @@ class AuthorizationPolicy(
             if (requestedBarberId != null && requestedBarberId != assigned) notFound()
             return AgendaScope(shop.id, assigned)
         }
-        if (requestedBarberId != null && barbers.findById(shop.id, requestedBarberId) == null) notFound()
+        if (requestedBarberId != null) tenants.execute(membership.barbershopId) {
+            if (barbers.findById(shop.id, requestedBarberId) == null) notFound()
+        }
         return AgendaScope(shop.id, requestedBarberId)
     }
     private fun notFound(): Nothing = throw AuthFailure(404, "No encontramos el recurso solicitado en esta barbería")

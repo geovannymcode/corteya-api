@@ -23,6 +23,11 @@ reviews:
     - path: "src/main/resources/db/migration/**"
       instructions: |
         - Nunca modificar una migración ya aplicada; crear una nueva.
+        - Toda tabla nueva con barbershop_id lleva ENABLE + FORCE RLS y su política en la misma migración.
+        - Excepciones deliberadas sin RLS: staff_membership y customer_identity son directorios
+          de identidad global con barbershop_id. Login, vinculación por teléfono verificado,
+          historial y borrado de cuenta requieren recorrer barberías, incluidas inactivas.
+          Su acceso debe filtrar por usuario autenticado o teléfono verificado; no por ids libres.
         - Toda tabla nueva lleva barbershop_id e índice, salvo barbershop y las tablas
           globales explícitas app_user, otp_challenge y refresh_token. Estas últimas
           identifican usuarios y credenciales compartidos entre barberías; no añadirles

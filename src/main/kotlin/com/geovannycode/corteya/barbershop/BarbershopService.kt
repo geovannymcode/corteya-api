@@ -16,6 +16,8 @@ data class ShopDetails(
 
 @Service
 class BarbershopService(private val repository: BarbershopRepository) {
+    fun activeIds(): List<UUID> = repository.activeIds()
+
     fun findBySlug(slug: String): ShopDetails? = repository.findBySlug(slug)?.details()
     fun findById(barbershopId: UUID): ShopDetails? = repository.findById(barbershopId)?.details()
 

@@ -4,7 +4,6 @@ import com.geovannycode.corteya.PostgresIntegrationTest
 import com.geovannycode.corteya.booking.dto.CreatedAppointmentResponse
 import com.geovannycode.corteya.booking.internal.HoldExpirationJob
 import com.geovannycode.corteya.identity.internal.AccessTokens
-import com.geovannycode.corteya.identity.internal.IdentityRepository
 import com.geovannycode.corteya.identity.internal.IdentityRepository as IdentityStore
 import java.net.URI
 import java.net.http.HttpClient
@@ -59,26 +58,25 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
 
     @BeforeEach
     fun fixtures() {
+        resetData(listOf(shop, otherShop))
         clock.set(baseTime)
         references.queue.clear()
         owners.clear()
-        jdbc.execute("TRUNCATE app_user CASCADE")
-        jdbc.execute("TRUNCATE barbershop CASCADE")
         listOf(shop to "shop-a", otherShop to "shop-b").forEach { (id, slug) ->
-            jdbc.update("insert into barbershop (id, slug, name, primary_color, secondary_color) values (?, ?, 'Piloto', '#112233', '#445566')", id, slug)
+            inShop(id) { jdbc.update("insert into barbershop (id, slug, name, primary_color, secondary_color) values (?, ?, 'Piloto', '#112233', '#445566')", id, slug) }
         }
         listOf(barber to shop, secondBarber to shop, otherBarber to otherShop).forEach { (id, tenant) ->
-            jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Barbero')", id, tenant)
-            for (day in 1..6) jdbc.update(
+            inShop(tenant) { jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Barbero')", id, tenant) }
+            for (day in 1..6) inShop(tenant) { jdbc.update(
                 "insert into working_hours (id, barbershop_id, barber_id, day_of_week, start_time, end_time) values (?, ?, ?, ?, '09:00', '20:00')",
                 UUID.randomUUID(), tenant, id, day,
-            )
+            ) }
         }
         listOf(service to shop, otherService to otherShop).forEach { (id, tenant) ->
-            jdbc.update("insert into service (id, barbershop_id, name, duration_minutes, price_cop) values (?, ?, 'Corte', 30, 38000)", id, tenant)
+            inShop(tenant) { jdbc.update("insert into service (id, barbershop_id, name, duration_minutes, price_cop) values (?, ?, 'Corte', 30, 38000)", id, tenant) }
         }
         listOf(Triple(shop, barber, service), Triple(shop, secondBarber, service), Triple(otherShop, otherBarber, otherService)).forEach { (tenant, b, s) ->
-            jdbc.update("insert into barber_service (id, barbershop_id, barber_id, service_id) values (?, ?, ?, ?)", UUID.randomUUID(), tenant, b, s)
+            inShop(tenant) { jdbc.update("insert into barber_service (id, barbershop_id, barber_id, service_id) values (?, ?, ?, ?)", UUID.randomUUID(), tenant, b, s) }
         }
     }
 
@@ -113,15 +111,15 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
     fun `job expires exactly past pending holds and is idempotent without touching confirmed`() {
         val expired = created(create())
         val confirmed = created(create(time = "10:00", phone = "3000000002"))
-        jdbc.update("update appointment set status = 'CONFIRMED' where barbershop_id = ? and public_token = ?", shop, confirmed)
+        inShop(shop) { jdbc.update("update appointment set status = 'CONFIRMED' where barbershop_id = ? and public_token = ?", shop, confirmed) }
         val boundary = created(create(time = "11:00", phone = "3000000003"))
         val future = created(create(time = "12:00", phone = "3000000004"))
         val otherTenant = created(create(slug = "shop-b", b = otherBarber, s = otherService, phone = "3000000005"))
-        jdbc.update("update appointment set hold_expires_at = ? where barbershop_id = ? and public_token = ?", Timestamp.from(baseTime.plusSeconds(1800)), shop, future)
+        inShop(shop) { jdbc.update("update appointment set hold_expires_at = ? where barbershop_id = ? and public_token = ?", Timestamp.from(baseTime.plusSeconds(1800)), shop, future) }
         clock.set(baseTime.plusSeconds(900))
         job.expire()
         assertEquals("PENDING_PAYMENT", status(boundary)) // exact boundary remains valid
-        jdbc.update("update appointment set hold_expires_at = ? where barbershop_id = ? and public_token = ?", Timestamp.from(baseTime.plusSeconds(899)), shop, expired)
+        inShop(shop) { jdbc.update("update appointment set hold_expires_at = ? where barbershop_id = ? and public_token = ?", Timestamp.from(baseTime.plusSeconds(899)), shop, expired) }
         job.expire()
         assertEquals("EXPIRED", status(expired))
         assertEquals("CONFIRMED", status(confirmed))
@@ -131,9 +129,9 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         job.expire()
         assertEquals("EXPIRED", status(boundary))
         assertEquals("EXPIRED", status(otherTenant)) // the job covers all tenants intentionally
-        val versions = jdbc.queryForList("select version from appointment order by id", Long::class.java)
+        val versions = listOf(shop, otherShop).flatMap { id -> inShop(id) { jdbc.queryForList("select version from appointment order by id", Long::class.java) } }
         job.expire()
-        assertEquals(versions, jdbc.queryForList("select version from appointment order by id", Long::class.java))
+        assertEquals(versions, listOf(shop, otherShop).flatMap { id -> inShop(id) { jdbc.queryForList("select version from appointment order by id", Long::class.java) } })
         assertEquals("CONFIRMED", status(confirmed))
     }
 
@@ -151,15 +149,15 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
 
     @Test
     fun `inactive shops barbers services and unassigned services are not exposed`() {
-        jdbc.update("delete from barber_service where barbershop_id = ? and barber_id = ?", shop, barber)
+        inShop(shop) { jdbc.update("delete from barber_service where barbershop_id = ? and barber_id = ?", shop, barber) }
         assertEquals(404, create().statusCode())
-        jdbc.update("update barber set active = false where barbershop_id = ? and id = ?", shop, secondBarber)
+        inShop(shop) { jdbc.update("update barber set active = false where barbershop_id = ? and id = ?", shop, secondBarber) }
         assertEquals(404, create(b = secondBarber).statusCode())
         assertEquals("[]", get("/api/v1/barbershops/shop-a/barbers?serviceId=$service").body())
-        jdbc.update("update service set active = false where barbershop_id = ? and id = ?", shop, service)
+        inShop(shop) { jdbc.update("update service set active = false where barbershop_id = ? and id = ?", shop, service) }
         assertEquals("[]", get("/api/v1/barbershops/shop-a/services").body())
         assertEquals(404, get("/api/v1/barbershops/shop-a/barbers?serviceId=$service").statusCode())
-        jdbc.update("update barbershop set active = false where id = ?", shop)
+        inShop(shop) { jdbc.update("update barbershop set active = false where id = ?", shop) }
         assertEquals(404, get("/api/v1/barbershops/shop-a").statusCode())
     }
 
@@ -171,7 +169,7 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(409, denied.statusCode())
         assertTrue(denied.body().contains("2 reservas pendientes"))
         assertEquals(1, count("customer"))
-        assertEquals("+573001234567", jdbc.queryForObject("select phone from customer where barbershop_id = ?", String::class.java, shop))
+        assertEquals("+573001234567", inShop(shop) { jdbc.queryForObject("select phone from customer where barbershop_id = ?", String::class.java, shop) })
         assertEquals(201, create(slug = "shop-b", b = otherBarber, s = otherService).statusCode())
     }
 
@@ -200,9 +198,9 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals("no-store", polled.headers().firstValue("Cache-Control").orElse(""))
         assertEquals("2026-10-19T09:00:00-05:00", json(polled).path("startsAt").asString())
         assertTrue(listOf("customerId", "customerPhone", "customerName", "barbershopId", "barberId", "serviceId").none { polled.body().contains(it) })
-        jdbc.update("update appointment set status = 'CONFIRMED' where barbershop_id = ? and public_token = ?", shop, token)
+        inShop(shop) { jdbc.update("update appointment set status = 'CONFIRMED' where barbershop_id = ? and public_token = ?", shop, token) }
         assertEquals("CONFIRMED", json(get("/api/v1/appointments/$token")).path("status").asString())
-        val internalId = jdbc.queryForObject("select id from appointment where barbershop_id = ? and public_token = ?", UUID::class.java, shop, token)
+        val internalId = inShop(shop) { jdbc.queryForObject("select id from appointment where barbershop_id = ? and public_token = ?", UUID::class.java, shop, token) }
         assertEquals(404, get("/api/v1/appointments/$internalId").statusCode())
         assertEquals(404, get("/api/v1/appointments/${"a".repeat(32)}").statusCode())
     }
@@ -212,7 +210,7 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         val response = create(time = "2026-10-19T14:00:00Z")
         val token = created(response)
         assertEquals("2026-10-19T09:00:00-05:00", json(get("/api/v1/appointments/$token")).path("startsAt").asString())
-        assertEquals(38000L, jdbc.queryForObject("select price_cop from appointment where barbershop_id = ? and public_token = ?", Long::class.java, shop, token))
+        assertEquals(38000L, inShop(shop) { jdbc.queryForObject("select price_cop from appointment where barbershop_id = ? and public_token = ?", Long::class.java, shop, token) })
     }
 
     @Test
@@ -253,7 +251,7 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         }
         assertEquals(409, create(time = "2026-10-18T09:00:00-05:00").statusCode())
         assertEquals(409, create(time = "2026-11-02T09:00:00-05:00").statusCode())
-        jdbc.update("insert into time_off (id, barbershop_id, barber_id, starts_at, ends_at, reason) values (?, ?, ?, '2026-10-19 14:00:00+00', '2026-10-19 15:00:00+00', 'Almuerzo')", UUID.randomUUID(), shop, barber)
+        inShop(shop) { jdbc.update("insert into time_off (id, barbershop_id, barber_id, starts_at, ends_at, reason) values (?, ?, ?, '2026-10-19 14:00:00+00', '2026-10-19 15:00:00+00', 'Almuerzo')", UUID.randomUUID(), shop, barber) }
         assertEquals(409, create().statusCode())
         assertEquals(201, create(time = "10:00").statusCode())
         assertEquals(409, create(time = "10:15", phone = "3000000002").statusCode())
@@ -317,7 +315,7 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals("2026-10-19T12:00:00-05:00", body.path("afternoon").first().asString())
         created(create())
         assertEquals("2026-10-19T09:30:00-05:00", nextAvailable())
-        jdbc.update("insert into time_off (id, barbershop_id, barber_id, starts_at, ends_at) values (?, ?, ?, '2026-10-19 14:30:00+00', '2026-10-19 15:00:00+00')", UUID.randomUUID(), shop, barber)
+        inShop(shop) { jdbc.update("insert into time_off (id, barbershop_id, barber_id, starts_at, ends_at) values (?, ?, ?, '2026-10-19 14:30:00+00', '2026-10-19 15:00:00+00')", UUID.randomUUID(), shop, barber) }
         assertEquals("2026-10-19T10:00:00-05:00", nextAvailable())
         clock.set(baseTime.plusSeconds(16 * 60))
         assertEquals("2026-10-19T09:00:00-05:00", nextAvailable()) // expired hold ignored without a write
@@ -352,7 +350,9 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         return json(response).path("publicToken").asString()
     }
     private fun status(token: String): String = json(get("/api/v1/appointments/$token")).path("status").asString()
-    private fun count(table: String): Int = checkNotNull(jdbc.queryForObject("select count(*) from $table", Int::class.java))
+    private fun count(table: String): Int = if (table in setOf("appointment", "customer"))
+        listOf(shop, otherShop).sumOf { id -> inShop(id) { checkNotNull(jdbc.queryForObject("select count(*) from $table", Int::class.java)) } }
+        else checkNotNull(jdbc.queryForObject("select count(*) from $table", Int::class.java))
     private fun json(response: HttpResponse<String>): JsonNode = mapper.readTree(response.body())
     private fun get(path: String): HttpResponse<String> {
         val request = HttpRequest.newBuilder(uri(path))

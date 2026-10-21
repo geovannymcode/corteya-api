@@ -1,24 +1,22 @@
 package com.geovannycode.corteya.booking
 
-import com.geovannycode.corteya.TEST_POSTGRES_IMAGE
+import com.geovannycode.corteya.testPostgres
 import java.sql.DriverManager
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Test
-import org.testcontainers.postgresql.PostgreSQLContainer
-import org.testcontainers.utility.DockerImageName
 
 class MigrationUpgradeTests {
     @Test
     fun `V2 and V3 upgrade an existing V1 database and backfills distinct public tokens without changing appointments`() {
-        PostgreSQLContainer(DockerImageName.parse(TEST_POSTGRES_IMAGE)).use { postgres ->
+        testPostgres().use { postgres ->
             postgres.start()
-            val config = Flyway.configure().dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
+            val config = Flyway.configure().dataSource(postgres.jdbcUrl, "corteya_owner", "owner-test-only")
                 .locations("classpath:db/migration")
             val v1 = config.target("1").load()
             v1.migrate()
-            DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+            DriverManager.getConnection(postgres.jdbcUrl, "corteya_app", "app-test-only").use { connection ->
                 connection.createStatement().use { sql ->
                     sql.executeUpdate("""insert into barbershop (id, slug, name, primary_color, secondary_color)
                         values ('10000000-0000-0000-0000-000000000001', 'legacy', 'Legacy', '#112233', '#445566')""")
@@ -35,11 +33,11 @@ class MigrationUpgradeTests {
                         '2026-10-19 14:00:00+00', '2026-10-19 14:30:00+00', 'CANCELLED', 38000, 11400, 'R-482$i', 'APP')""")
                 }
             }
-            val latest = Flyway.configure().dataSource(postgres.jdbcUrl, postgres.username, postgres.password)
+            val latest = Flyway.configure().dataSource(postgres.jdbcUrl, "corteya_owner", "owner-test-only")
                 .locations("classpath:db/migration").target("3").load()
             assertEquals(2, latest.migrate().migrationsExecuted)
             latest.validate()
-            DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+            DriverManager.getConnection(postgres.jdbcUrl, "corteya_app", "app-test-only").use { connection ->
                 connection.createStatement().use { sql ->
                     sql.executeQuery("select public_token, status, deposit_cop from appointment").use { rows ->
                         val tokens = mutableSetOf<String>()

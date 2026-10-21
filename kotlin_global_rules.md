@@ -94,9 +94,18 @@ description: Rule set for Kotlin coding best practices in Spring Boot applicatio
 ### Tenant Isolation and Global Identity Tables
 
 - Every new tenant-owned table must include `barbershop_id` and its index.
+- Toda tabla nueva con barbershop_id lleva ENABLE + FORCE RLS y su política en la misma migración.
+- Set `app.barbershop_id` only through `shared/TenantTransaction`, locally to the transaction,
+  before any tenant data access. Resolve the tenant from a slug, a validated live membership,
+  or the verified user's identity directory, never an unchecked client UUID.
+- Runtime uses `corteya_app` (not owner, superuser or BYPASSRLS); only Flyway uses `corteya_owner`.
+- Jobs visit active shops with a separate tenant transaction for each; there is no bypass/system mode.
 - Explicit exceptions: `barbershop` is the tenant root; `app_user`, `otp_challenge`,
   and `refresh_token` are global identity/credential tables shared across barbershops.
   Do not add `barbershop_id` to those three global tables.
 - Access to global identity data must be scoped by the authenticated user, a verified
-  phone number, or a secret credential hash. Staff membership remains tenant-owned.
+  phone number, or a secret credential hash. Staff membership remains tenant-owned by its FK but deliberately has no RLS: login reads
+  memberships across shops. `customer_identity` is also global identity without RLS, with
+  `barbershop_id`, for verified phone linking, history and erasure including inactive shops.
+  Access to these two directories must filter by authenticated user or verified phone.
 - Any other global-table exception requires explicit review; do not generalize it.

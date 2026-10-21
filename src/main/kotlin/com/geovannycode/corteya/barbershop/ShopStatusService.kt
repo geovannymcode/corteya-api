@@ -1,5 +1,6 @@
 package com.geovannycode.corteya.barbershop
 
+import com.geovannycode.corteya.shared.TenantTransaction
 import com.geovannycode.corteya.catalog.BarberDirectoryService
 import com.geovannycode.corteya.scheduling.TimeInterval
 import com.geovannycode.corteya.scheduling.WorkingHoursService
@@ -16,8 +17,11 @@ class ShopStatusService(
     private val barbers: BarberDirectoryService,
     private val hours: WorkingHoursService,
     private val clock: Clock,
+    private val tenants: TenantTransaction,
 ) {
-    fun status(shop: ShopDetails): ShopStatus {
+    fun status(shop: ShopDetails): ShopStatus = tenants.execute(shop.id) { statusInTenant(shop) }
+
+    private fun statusInTenant(shop: ShopDetails): ShopStatus {
         val now = clock.instant()
         val zone = ZoneId.of(shop.timezone)
         val today = now.atZone(zone).toLocalDate()

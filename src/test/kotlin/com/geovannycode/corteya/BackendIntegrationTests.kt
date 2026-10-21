@@ -106,10 +106,10 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
 
     @BeforeEach
     fun fixtures() {
-        jdbc.execute("TRUNCATE barbershop CASCADE")
-        transactions.executeWithoutResult {
+        resetData(listOf(shopId, otherShopId))
+        inShop(otherShopId) { entityManager.persist(BarbershopEntity(id = otherShopId, slug = "other-shop", name = "Other")) }
+        inShop(shopId) {
             entityManager.persist(BarbershopEntity(id = shopId, slug = "test-shop", name = "Test"))
-            entityManager.persist(BarbershopEntity(id = otherShopId, slug = "other-shop", name = "Other"))
             entityManager.persist(BarberEntity(id = barberId, barbershopId = shopId, name = "Barber"))
             entityManager.persist(BarberEntity(id = secondBarberId, barbershopId = shopId, name = "Second"))
             entityManager.persist(ServiceEntity(id = serviceId, barbershopId = shopId, name = "Corte", durationMinutes = 30, priceCop = 25000))
@@ -120,7 +120,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     @Test
     fun `migrations run on real PostgreSQL with no dev data by default`() {
         flyway.validate()
-        assertEquals("4", flyway.info().current()?.version?.version)
+        assertEquals("5", flyway.info().current()?.version?.version)
         assertEquals(0, flyway.info().pending().size)
         assertEquals(0, jdbc.queryForObject("select count(*) from flyway_schema_history where script = 'R__demo_data.sql'", Int::class.java))
         assertEquals("UTC", jdbc.queryForObject("show timezone", String::class.java))
@@ -140,7 +140,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     fun `overlap for different barbers is allowed`() {
         insertAppointment()
         insertAppointment(barber = secondBarberId)
-        assertEquals(2, appointments.findAll(shopId).size)
+        assertEquals(2, inShop(shopId) { appointments.findAll(shopId) }.size)
     }
 
     @ParameterizedTest
@@ -148,16 +148,16 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     fun `inactive appointments do not block the slot`(status: AppointmentStatus) {
         insertAppointment(status = status)
         insertAppointment()
-        assertEquals(2, appointments.findAll(shopId).size)
+        assertEquals(2, inShop(shopId) { appointments.findAll(shopId) }.size)
     }
 
     @Test
     fun `cancelling or expiring an existing hold releases the slot`() {
         for (status in listOf("CANCELLED", "EXPIRED")) {
             val id = insertAppointment()
-            jdbc.update("update appointment set status = ? where barbershop_id = ? and id = ?", status, shopId, id)
+            inShop(shopId) { jdbc.update("update appointment set status = ? where barbershop_id = ? and id = ?", status, shopId, id) }
             val replacement = insertAppointment()
-            jdbc.update("delete from appointment where barbershop_id = ? and id = ?", shopId, replacement)
+            inShop(shopId) { jdbc.update("delete from appointment where barbershop_id = ? and id = ?", shopId, replacement) }
         }
     }
 
@@ -165,7 +165,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     fun `adjacent half open intervals are allowed`() {
         insertAppointment()
         insertAppointment(startsAt = start.plusSeconds(1800))
-        assertEquals(2, appointments.findAll(shopId).size)
+        assertEquals(2, inShop(shopId) { appointments.findAll(shopId) }.size)
     }
 
     @Test
@@ -179,7 +179,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
         val local = LocalDateTime.of(2026, 10, 19, 9, 0)
         val instant = local.atZone(bogota).toInstant()
         val id = UUID.randomUUID()
-        transactions.executeWithoutResult {
+        inShop(shopId) {
             entityManager.persist(AppointmentEntity(
                 id = id, barbershopId = shopId, barberId = barberId, serviceId = serviceId,
                 customerId = customerId, startsAt = instant, endsAt = instant.plusSeconds(1800),
@@ -187,13 +187,13 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
                 holdExpiresAt = instant.minusSeconds(600),
             ))
         }
-        val stored = assertNotNull(appointments.findById(shopId, id))
+        val stored = assertNotNull(inShop(shopId) { appointments.findById(shopId, id) })
         assertEquals(Instant.parse("2026-10-19T14:00:00Z"), stored.startsAt)
         assertEquals(local, stored.startsAt.atZone(bogota).toLocalDateTime())
-        assertEquals("2026-10-19 14:00:00", jdbc.queryForObject(
+        assertEquals("2026-10-19 14:00:00", inShop(shopId) { jdbc.queryForObject(
             "select to_char(starts_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS') from appointment where barbershop_id = ? and id = ?",
             String::class.java, shopId, id,
-        ))
+        ) })
         assertEquals(0L, stored.version)
         assertEquals(7500L, stored.depositCop)
     }
@@ -203,7 +203,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
         val linkId = UUID.randomUUID()
         val hoursId = UUID.randomUUID()
         val offId = UUID.randomUUID()
-        transactions.executeWithoutResult {
+        inShop(shopId) {
             entityManager.persist(BarberServiceEntity(id = linkId, barbershopId = shopId, barberId = barberId, serviceId = serviceId))
             entityManager.persist(WorkingHoursEntity(id = hoursId, barbershopId = shopId, barberId = barberId, dayOfWeek = 1,
                 startTime = LocalTime.of(9, 0), endTime = LocalTime.of(18, 0)))
@@ -211,28 +211,28 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
                 startsAt = start, endsAt = start.plusSeconds(1800), reason = "Almuerzo"))
         }
         val appointmentId = insertAppointment()
-        assertNotNull(shops.findById(shopId))
-        assertNull(shops.findById(UUID.randomUUID()))
-        assertNotNull(barbers.findById(shopId, barberId))
-        assertNotNull(services.findById(shopId, serviceId))
-        assertNotNull(customers.findById(shopId, customerId))
-        assertNotNull(barberServices.findById(shopId, linkId))
-        assertEquals(LocalTime.of(9, 0), hours.findById(shopId, hoursId)?.startTime)
-        assertEquals("09:00:00", jdbc.queryForObject(
+        assertNotNull(inShop(shopId) { shops.findById(shopId) })
+        assertNull(inShop(shopId) { shops.findById(UUID.randomUUID()) })
+        assertNotNull(inShop(shopId) { barbers.findById(shopId, barberId) })
+        assertNotNull(inShop(shopId) { services.findById(shopId, serviceId) })
+        assertNotNull(inShop(shopId) { customers.findById(shopId, customerId) })
+        assertNotNull(inShop(shopId) { barberServices.findById(shopId, linkId) })
+        assertEquals(LocalTime.of(9, 0), inShop(shopId) { hours.findById(shopId, hoursId) }?.startTime)
+        assertEquals("09:00:00", inShop(shopId) { jdbc.queryForObject(
             "select start_time::text from working_hours where barbershop_id = ? and id = ?", String::class.java, shopId, hoursId,
-        ))
-        assertEquals("Almuerzo", timeOffs.findById(shopId, offId)?.reason)
-        assertNotNull(appointments.findById(shopId, appointmentId))
-        assertNull(barbers.findById(otherShopId, barberId))
-        assertNull(services.findById(otherShopId, serviceId))
-        assertNull(customers.findById(otherShopId, customerId))
-        assertNull(barberServices.findById(otherShopId, linkId))
-        assertNull(hours.findById(otherShopId, hoursId))
-        assertNull(timeOffs.findById(otherShopId, offId))
-        assertNull(appointments.findById(otherShopId, appointmentId))
-        listOf(barbers.findAll(otherShopId), services.findAll(otherShopId), customers.findAll(otherShopId),
-            barberServices.findAll(otherShopId), hours.findAll(otherShopId), timeOffs.findAll(otherShopId),
-            appointments.findAll(otherShopId)).forEach { assertTrue(it.isEmpty()) }
+        ) })
+        assertEquals("Almuerzo", inShop(shopId) { timeOffs.findById(shopId, offId) }?.reason)
+        assertNotNull(inShop(shopId) { appointments.findById(shopId, appointmentId) })
+        assertNull(inShop(otherShopId) { barbers.findById(otherShopId, barberId) })
+        assertNull(inShop(otherShopId) { services.findById(otherShopId, serviceId) })
+        assertNull(inShop(otherShopId) { customers.findById(otherShopId, customerId) })
+        assertNull(inShop(otherShopId) { barberServices.findById(otherShopId, linkId) })
+        assertNull(inShop(otherShopId) { hours.findById(otherShopId, hoursId) })
+        assertNull(inShop(otherShopId) { timeOffs.findById(otherShopId, offId) })
+        assertNull(inShop(otherShopId) { appointments.findById(otherShopId, appointmentId) })
+        listOf(inShop(otherShopId) { barbers.findAll(otherShopId) }, inShop(otherShopId) { services.findAll(otherShopId) }, inShop(otherShopId) { customers.findAll(otherShopId) },
+            inShop(otherShopId) { barberServices.findAll(otherShopId) }, inShop(otherShopId) { hours.findAll(otherShopId) }, inShop(otherShopId) { timeOffs.findAll(otherShopId) },
+            inShop(otherShopId) { appointments.findAll(otherShopId) }).forEach { assertTrue(it.isEmpty()) }
     }
 
     @Test
@@ -240,9 +240,9 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
         val foreignBarber = UUID.randomUUID()
         val foreignService = UUID.randomUUID()
         val foreignCustomer = UUID.randomUUID()
-        jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Other')", foreignBarber, otherShopId)
-        jdbc.update("insert into service (id, barbershop_id, name, duration_minutes, price_cop) values (?, ?, 'Other', 30, 25000)", foreignService, otherShopId)
-        jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '+573001234567', 'Other')", foreignCustomer, otherShopId)
+        inShop(otherShopId) { jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Other')", foreignBarber, otherShopId) }
+        inShop(otherShopId) { jdbc.update("insert into service (id, barbershop_id, name, duration_minutes, price_cop) values (?, ?, 'Other', 30, 25000)", foreignService, otherShopId) }
+        inShop(otherShopId) { jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '+573001234567', 'Other')", foreignCustomer, otherShopId) }
         assertConstraint("23503", "fk_appointment_barber") { insertAppointment(barber = foreignBarber) }
         assertConstraint("23503", "fk_appointment_service") { insertAppointment(service = foreignService) }
         assertConstraint("23503", "fk_appointment_customer") { insertAppointment(customer = foreignCustomer) }
@@ -251,10 +251,10 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     @Test
     fun `phone and payment references enforce uniqueness and E164`() {
         assertConstraint("23505", "uq_customer_phone") {
-            jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '+573001234567', 'Duplicate')", UUID.randomUUID(), shopId)
+            inShop(shopId) { jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '+573001234567', 'Duplicate')", UUID.randomUUID(), shopId) }
         }
         assertConstraint("23514", "ck_customer_phone") {
-            jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '3001234567', 'Invalid')", UUID.randomUUID(), shopId)
+            inShop(shopId) { jdbc.update("insert into customer (id, barbershop_id, phone, name) values (?, ?, '3001234567', 'Invalid')", UUID.randomUUID(), shopId) }
         }
         insertAppointment(reference = "R-4821")
         assertConstraint("23505", "uq_appointment_shop_reference") {
@@ -264,31 +264,31 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
 
     @Test
     fun `tenant ownership is immutable and audit timestamps update`() {
-        val before = assertNotNull(barbers.findById(shopId, barberId))
-        jdbc.update("update barber set name = 'Updated' where barbershop_id = ? and id = ?", shopId, barberId)
-        val after = assertNotNull(barbers.findById(shopId, barberId))
+        val before = assertNotNull(inShop(shopId) { barbers.findById(shopId, barberId) })
+        inShop(shopId) { jdbc.update("update barber set name = 'Updated' where barbershop_id = ? and id = ?", shopId, barberId) }
+        val after = assertNotNull(inShop(shopId) { barbers.findById(shopId, barberId) })
         assertEquals(before.createdAt, after.createdAt)
         assertTrue(after.updatedAt > before.updatedAt)
         assertConstraint("23514", "barbershop_id is immutable") {
-            jdbc.update("update barber set barbershop_id = ? where barbershop_id = ? and id = ?", otherShopId, shopId, barberId)
+            inShop(shopId) { jdbc.update("update barber set barbershop_id = ? where barbershop_id = ? and id = ?", otherShopId, shopId, barberId) }
         }
     }
 
     @Test
     fun `appointment version rejects stale JPA writes`() {
         val id = insertAppointment()
-        val stale = entityManagerFactory.createEntityManager().use { manager ->
-            assertNotNull(manager.createQuery(
+        val stale = inShop(shopId) {
+            assertNotNull(entityManager.createQuery(
                 "select a from AppointmentEntity a where a.barbershopId = :shop and a.id = :id", AppointmentEntity::class.java,
             ).setParameter("shop", shopId).setParameter("id", id).singleResult)
         }
-        transactions.executeWithoutResult {
+        inShop(shopId) {
             entityManager.merge(stale.copy(status = AppointmentStatus.CONFIRMED))
             entityManager.flush()
         }
-        assertEquals(1L, appointments.findById(shopId, id)?.version)
+        assertEquals(1L, inShop(shopId) { appointments.findById(shopId, id) }?.version)
         assertFailsWith<OptimisticLockException> {
-            transactions.executeWithoutResult {
+            inShop(shopId) {
                 entityManager.merge(stale.copy(status = AppointmentStatus.CANCELLED))
                 entityManager.flush()
             }
@@ -303,7 +303,8 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
                 executor.submit(Callable {
                     gate.await(10, TimeUnit.SECONDS)
                     try {
-                        dataSource.connection.use { connection ->
+                        inShop(shopId) {
+                            val connection = org.springframework.jdbc.datasource.DataSourceUtils.getConnection(dataSource)
                             connection.prepareStatement(INSERT_APPOINTMENT).use { statement ->
                                 bindAppointment(statement, UUID.randomUUID(), barberId, serviceId, customerId, start,
                                     start.plusSeconds(1800), AppointmentStatus.PENDING_PAYMENT, newReference())
@@ -311,7 +312,9 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
                             }
                         }
                         "OK"
-                    } catch (exception: SQLException) { exception.sqlState }
+                    } catch (exception: Exception) {
+                        generateSequence<Throwable>(exception) { it.cause }.filterIsInstance<SQLException>().last().sqlState
+                    }
                 })
             }
             gate.countDown()
@@ -345,10 +348,12 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
         reference: String = newReference(),
     ): UUID {
         val id = UUID.randomUUID()
+        inShop(shopId) {
         jdbc.update { connection ->
             connection.prepareStatement(INSERT_APPOINTMENT).also {
                 bindAppointment(it, id, barber, service, customer, startsAt, endsAt, status, reference)
             }
+        }
         }
         return id
     }

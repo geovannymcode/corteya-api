@@ -5,7 +5,6 @@ import com.geovannycode.corteya.RecordingOtpSender
 import com.geovannycode.corteya.booking.FixedBookingTestConfiguration
 import com.geovannycode.corteya.booking.MutableTestClock
 import com.geovannycode.corteya.booking.dto.CreateAppointmentRequest
-import com.geovannycode.corteya.identity.internal.IdentityRepository
 import com.geovannycode.corteya.identity.internal.IdentityRepository as IdentityStore
 import com.geovannycode.corteya.identity.internal.JwtConfiguration
 import com.geovannycode.corteya.identity.internal.SigningKey
@@ -26,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
-import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm
 import org.springframework.security.oauth2.jwt.*
@@ -56,23 +54,21 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
 
     @BeforeEach
     fun fixtures() {
+        resetData(listOf(shop, otherShop))
         clock.set(now)
         sender.codes.clear()
-        jdbc.execute("TRUNCATE app_user CASCADE")
-        jdbc.execute("TRUNCATE barbershop CASCADE")
-        jdbc.execute("TRUNCATE otp_challenge")
         listOf(shop to "shop-a", otherShop to "shop-b").forEach { (id, slug) ->
-            jdbc.update("insert into barbershop (id, slug, name, primary_color, secondary_color) values (?, ?, 'Piloto', '#112233', '#445566')", id, slug)
+            inShop(id) { jdbc.update("insert into barbershop (id, slug, name, primary_color, secondary_color) values (?, ?, 'Piloto', '#112233', '#445566')", id, slug) }
         }
         listOf(barber to shop, secondBarber to shop, otherBarber to otherShop).forEach { (id, tenant) ->
-            jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Barbero')", id, tenant)
-            jdbc.update("insert into working_hours (id, barbershop_id, barber_id, day_of_week, start_time, end_time) values (?, ?, ?, 1, '09:00', '20:00')", UUID.randomUUID(), tenant, id)
+            inShop(tenant) { jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Barbero')", id, tenant) }
+            inShop(tenant) { jdbc.update("insert into working_hours (id, barbershop_id, barber_id, day_of_week, start_time, end_time) values (?, ?, ?, 1, '09:00', '20:00')", UUID.randomUUID(), tenant, id) }
         }
         listOf(service to shop, otherService to otherShop).forEach { (id, tenant) ->
-            jdbc.update("insert into service (id, barbershop_id, name, duration_minutes, price_cop) values (?, ?, 'Corte', 30, 38000)", id, tenant)
+            inShop(tenant) { jdbc.update("insert into service (id, barbershop_id, name, duration_minutes, price_cop) values (?, ?, 'Corte', 30, 38000)", id, tenant) }
         }
         listOf(Triple(shop, barber, service), Triple(shop, secondBarber, service), Triple(otherShop, otherBarber, otherService)).forEach { (tenant, b, s) ->
-            jdbc.update("insert into barber_service (id, barbershop_id, barber_id, service_id) values (?, ?, ?, ?)", UUID.randomUUID(), tenant, b, s)
+            inShop(tenant) { jdbc.update("insert into barber_service (id, barbershop_id, barber_id, service_id) values (?, ?, ?, ?)", UUID.randomUUID(), tenant, b, s) }
         }
     }
 
@@ -261,9 +257,9 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(204, send("PATCH", "/api/v1/me", mapOf("name" to "  Nombre elegido  "), session.access).statusCode())
         val response = send("POST", "/api/v1/barbershops/shop-a/appointments", bookingBody() + mapOf("customerName" to "Impostor", "customerPhone" to "3009999999"), session.access)
         assertEquals(201, response.statusCode(), response.body())
-        assertEquals("Nombre elegido", jdbc.queryForObject("select name from customer", String::class.java))
-        assertEquals("+573001234567", jdbc.queryForObject("select phone from customer", String::class.java))
-        assertEquals(session.id, jdbc.queryForObject("select user_id from customer", UUID::class.java))
+        assertEquals("Nombre elegido", inShop(shop) { jdbc.queryForObject("select name from customer", String::class.java) })
+        assertEquals("+573001234567", inShop(shop) { jdbc.queryForObject("select phone from customer", String::class.java) })
+        assertEquals(session.id, inShop(shop) { jdbc.queryForObject("select user_id from customer", UUID::class.java) })
     }
 
     @Test
@@ -316,7 +312,7 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         val old = book(me)
         assertEquals(201, book(me, time = "10:00").statusCode())
         assertEquals(201, book(other, b = secondBarber).statusCode())
-        jdbc.update("update appointment set starts_at = starts_at - interval '1 day', ends_at = ends_at - interval '1 day' where barbershop_id = ? and public_token = ?", shop, body(old).path("publicToken").asString())
+        inShop(shop) { jdbc.update("update appointment set starts_at = starts_at - interval '1 day', ends_at = ends_at - interval '1 day' where barbershop_id = ? and public_token = ?", shop, body(old).path("publicToken").asString()) }
         val mine = send("GET", "/api/v1/me/appointments", token = me.access)
         assertEquals(200, mine.statusCode(), mine.body())
         assertEquals(1, body(mine).path("upcoming").size())
@@ -348,11 +344,11 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
     @Test
     fun `verified phone safely links existing manual customer history`() {
         val customerId = UUID.randomUUID()
-        jdbc.update("insert into customer (id, barbershop_id, name, phone) values (?, ?, 'Manual', '+573001234567')", customerId, shop)
-        jdbc.update("""insert into appointment (id, barbershop_id, barber_id, service_id, customer_id, starts_at, ends_at, status, price_cop, deposit_cop, payment_reference, source)
-            values (?, ?, ?, ?, ?, '2026-10-19 14:00:00+00', '2026-10-19 14:30:00+00', 'CONFIRMED', 38000, 12000, 'R-ABCD', 'MANUAL')""", UUID.randomUUID(), shop, barber, service, customerId)
+        inShop(shop) { jdbc.update("insert into customer (id, barbershop_id, name, phone) values (?, ?, 'Manual', '+573001234567')", customerId, shop) }
+        inShop(shop) { jdbc.update("""insert into appointment (id, barbershop_id, barber_id, service_id, customer_id, starts_at, ends_at, status, price_cop, deposit_cop, payment_reference, source)
+            values (?, ?, ?, ?, ?, '2026-10-19 14:00:00+00', '2026-10-19 14:30:00+00', 'CONFIRMED', 38000, 12000, 'R-ABCD', 'MANUAL')""", UUID.randomUUID(), shop, barber, service, customerId) }
         val me = login("3001234567")
-        assertEquals(me.id, jdbc.queryForObject("select user_id from customer where barbershop_id = ? and id = ?", UUID::class.java, shop, customerId))
+        assertEquals(me.id, inShop(shop) { jdbc.queryForObject("select user_id from customer where barbershop_id = ? and id = ?", UUID::class.java, shop, customerId) })
         assertEquals(1, body(send("GET", "/api/v1/me/appointments", token = me.access)).path("upcoming").size())
     }
 
@@ -388,6 +384,45 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         assertFalse(document.path("paths").path("/api/v1/me").path("delete").isMissingNode)
     }
 
+    @Test
+    fun `inactive shop history and public token remain accessible only to their verified owner`() {
+        val me = login("3001234567")
+        val created = book(me, slug = "shop-b", b = otherBarber, s = otherService)
+        assertEquals(201, created.statusCode())
+        val token = body(created).path("publicToken").asString()
+        inShop(otherShop) { jdbc.update("update barbershop set active = false where id = ?", otherShop) }
+        assertEquals(404, send("GET", "/api/v1/barbershops/shop-b").statusCode())
+        assertEquals(1, body(send("GET", "/api/v1/me/appointments", token = me.access)).path("upcoming").size())
+        assertEquals(200, send("GET", "/api/v1/appointments/$token", token = me.access).statusCode())
+        val other = login("3007654321")
+        assertEquals(404, send("GET", "/api/v1/appointments/$token", token = other.access).statusCode())
+    }
+
+    @Test
+    fun `account deletion anonymizes inactive shops and erases their identity directory`() {
+        val me = login("3001234567")
+        assertEquals(201, book(me).statusCode())
+        assertEquals(201, book(me, slug = "shop-b", b = otherBarber, s = otherService).statusCode())
+        inShop(otherShop) { jdbc.update("update barbershop set active = false where id = ?", otherShop) }
+        assertEquals(204, send("DELETE", "/api/v1/me", token = me.access).statusCode())
+        assertEquals(2, count("customer", "phone is null and name = 'Cliente eliminado'"))
+        assertEquals(2, count("appointment"))
+        assertEquals(0, jdbc.queryForObject("select count(*) from customer_identity where user_id = ? or phone = '+573001234567'", Int::class.java, me.id))
+    }
+
+    @Test
+    fun `verified phone links manual customers even in an inactive shop through identity directory`() {
+        val customerId = UUID.randomUUID()
+        inShop(otherShop) {
+            jdbc.update("insert into customer (id, barbershop_id, name, phone) values (?, ?, 'Manual', '+573001234567')", customerId, otherShop)
+            jdbc.update("update barbershop set active = false where id = ?", otherShop)
+        }
+        val me = login("3001234567")
+        assertEquals(me.id, inShop(otherShop) {
+            jdbc.queryForObject("select user_id from customer where id = ?", UUID::class.java, customerId)
+        })
+    }
+
     private data class Session(val id: UUID, val access: String, val refresh: String)
     private fun login(phone: String, name: String? = "Cliente de prueba"): Session {
         val requested = otpRequest(phone)
@@ -413,7 +448,9 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
     private fun verify(phone: String, code: String) = send("POST", "/api/v1/auth/otp/verify", mapOf("phone" to phone, "code" to code))
     private fun refresh(token: String) = send("POST", "/api/v1/auth/refresh", mapOf("refreshToken" to token))
     private fun body(response: HttpResponse<String>): JsonNode = mapper.readTree(response.body())
-    private fun count(table: String, condition: String = "true"): Int = checkNotNull(jdbc.queryForObject("select count(*) from $table where $condition", Int::class.java))
+    private fun count(table: String, condition: String = "true"): Int = if (table in setOf("appointment", "customer"))
+        listOf(shop, otherShop).sumOf { id -> inShop(id) { checkNotNull(jdbc.queryForObject("select count(*) from $table where $condition", Int::class.java)) } }
+        else checkNotNull(jdbc.queryForObject("select count(*) from $table where $condition", Int::class.java))
     private fun send(method: String, path: String, data: Any? = null, token: String? = null, forwarded: String? = null): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$serverPort$path"))
         token?.let { request.header("Authorization", "Bearer $it") }

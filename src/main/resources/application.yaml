@@ -3,7 +3,7 @@ spring:
     name: corteya-api
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/corteya}
-    username: ${DB_USERNAME:corteya}
+    username: ${DB_USERNAME:corteya_app}
     password: ${DB_PASSWORD}
     hikari:
       connection-init-sql: SET TIME ZONE 'UTC'
@@ -15,6 +15,8 @@ spring:
       hibernate.jdbc.time_zone: UTC
       hibernate.type.java_time_use_direct_jdbc: true
   flyway:
+    user: ${FLYWAY_USERNAME:corteya_owner}
+    password: ${FLYWAY_PASSWORD}
     locations: classpath:db/migration
   web:
     resources:
