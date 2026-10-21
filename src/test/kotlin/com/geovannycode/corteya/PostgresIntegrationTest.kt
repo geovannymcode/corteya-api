@@ -69,7 +69,7 @@ abstract class PostgresIntegrationTest(
         val jdbc = context.getBean(JdbcTemplate::class.java)
         jdbc.update("delete from staff_membership")
         shopIds.forEach { id -> inShop(id) {
-            listOf("appointment", "time_off", "working_hours", "barber_service", "customer", "service", "barber").forEach {
+            listOf("deposit_event", "deposit_payment", "barbershop_payment_settings", "appointment", "time_off", "working_hours", "barber_service", "customer", "service", "barber").forEach {
                 jdbc.update("delete from $it where barbershop_id = ?", id)
             }
             jdbc.update("delete from barbershop where id = ?", id)
@@ -78,6 +78,13 @@ abstract class PostgresIntegrationTest(
         jdbc.update("delete from refresh_token")
         jdbc.update("delete from app_user")
         jdbc.update("delete from otp_challenge")
+    }
+
+    /** Earlier booking scenarios explicitly keep their original 15 minute hold. */
+    protected fun configureLegacyTestPayments(shop: UUID) = inShop(shop) {
+        context.getBean(com.geovannycode.corteya.booking.PaymentSettingsService::class.java).configure(shop,
+            com.geovannycode.corteya.booking.dto.PaymentSettingsRequest(com.geovannycode.corteya.booking.DepositMode.BREB_MANUAL,
+                com.geovannycode.corteya.booking.BrebKeyType.ALIAS, "@TEST", "Titular de prueba", holdMinutes = 15))
     }
 
     @AfterAll

@@ -8,6 +8,12 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 
 class DevSeedIntegrationTests : PostgresIntegrationTest(profile = "dev") {
+    override fun customize(builder: org.springframework.boot.builder.SpringApplicationBuilder) = builder.initializers({ context ->
+        context.environment.propertySources.addFirst(org.springframework.core.env.MapPropertySource("empty-dev-payment-keys", mapOf(
+            "WOMPI_SANDBOX_PUBLIC_KEY" to "", "WOMPI_SANDBOX_PRIVATE_KEY" to "",
+            "WOMPI_SANDBOX_INTEGRITY_SECRET" to "", "WOMPI_SANDBOX_EVENTS_SECRET" to "")))
+    })
+
     @Autowired
     private lateinit var jdbc: JdbcTemplate
 
@@ -17,6 +23,8 @@ class DevSeedIntegrationTests : PostgresIntegrationTest(profile = "dev") {
     @Test
     fun `dev profile loads a repeatable demo with three barbers and four services`() {
         inShop(UUID.fromString("10000000-0000-0000-0000-000000000001")) {
+        assertEquals("BREB_MANUAL", jdbc.queryForObject("select deposit_mode from barbershop_payment_settings", String::class.java))
+        assertEquals(30, jdbc.queryForObject("select hold_minutes from barbershop_payment_settings", Int::class.java))
         flyway.validate()
         assertEquals(0, flyway.migrate().migrationsExecuted)
         val expected = mapOf("barbershop" to 1, "barber" to 3, "service" to 4,
