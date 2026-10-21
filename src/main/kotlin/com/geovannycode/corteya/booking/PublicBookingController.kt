@@ -48,6 +48,7 @@ class PublicBookingController(
     private val createAppointment: CreateAppointment,
     private val queries: BookingQueries,
     private val policy: AuthorizationPolicy,
+    private val paymentSettings: PaymentSettingsService,
 ) {
     @GetMapping("/barbershops/{slug}")
     @Operation(summary = "Identidad y estado de apertura de la barbería")
@@ -55,7 +56,7 @@ class PublicBookingController(
         val shop = availability.shop(slug)
         val status = shopStatus.status(shop)
         return BarbershopResponse(shop.slug, shop.name, shop.logoUrl, shop.primaryColor, shop.secondaryColor,
-            status.open, status.message, status.nextChangeAt?.bogota())
+            status.open, status.message, status.nextChangeAt?.bogota(), paymentSettings.bookingEnabled(shop.id))
     }
 
     @GetMapping("/barbershops/{slug}/services")
@@ -86,13 +87,13 @@ class PublicBookingController(
     @ApiResponse(responseCode = "409", description = "Horario ocupado, límite de pendientes o referencia agotada",
         content = [Content(mediaType = "application/problem+json", schema = Schema(implementation = ProblemDetail::class))])
     fun create(@PathVariable slug: String, @Valid @RequestBody body: CreateAppointmentRequest, @AuthenticationPrincipal jwt: Jwt): ResponseEntity<CreatedAppointmentResponse> {
-        val result = createAppointment.create(slug, CreateAppointmentCommand(
+        val created = createAppointment.create(slug, CreateAppointmentCommand(
             body.barberId, body.serviceId, body.startsAt.toInstant(), UUID.fromString(jwt.subject),
         ))
-        // TODO phase 4: add Bre-B / Wompi payment instructions for the barber's account.
+        val result = created.appointment
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(
             CreatedAppointmentResponse(result.publicToken, result.status, result.depositCop, result.paymentReference,
-                checkNotNull(result.holdExpiresAt).bogota()),
+                result.holdExpiresAt?.bogota(), created.paymentInstructions),
         )
     }
 

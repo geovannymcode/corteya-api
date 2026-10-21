@@ -8,7 +8,7 @@ import java.util.UUID
 
 data class BarbershopResponse(
     val slug: String, val name: String, val logoUrl: String?, val primaryColor: String, val secondaryColor: String,
-    val open: Boolean, val statusMessage: String, val nextChangeAt: OffsetDateTime?,
+    val open: Boolean, val statusMessage: String, val nextChangeAt: OffsetDateTime?, val bookingEnabled: Boolean,
 )
 
 data class ServiceResponse(val id: UUID, val name: String, val description: String?, val durationMinutes: Int, val priceCop: Long)
@@ -24,7 +24,7 @@ data class CreateAppointmentRequest(
 
 data class CreatedAppointmentResponse(
     val publicToken: String, val status: AppointmentStatus, val depositCop: Long,
-    val paymentReference: String, val holdExpiresAt: OffsetDateTime,
+    val paymentReference: String, val holdExpiresAt: OffsetDateTime?, val paymentInstructions: PaymentInstructions?,
 )
 
 /** Public capability response deliberately omits customer data and internal UUIDs. */
