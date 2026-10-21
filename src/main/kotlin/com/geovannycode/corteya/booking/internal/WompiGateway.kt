@@ -41,19 +41,20 @@ class WompiGateway(
     fun transaction(settings: PaymentSettings, id: String): JsonNode {
         check(!TransactionSynchronizationManager.isActualTransactionActive()) { "HTTP de Wompi fuera de transacciones" }
         if (!id.matches(Regex("[A-Za-z0-9-]{1,100}"))) throw ApiFailure(400, "Evento de pago inválido")
-        val base = if (settings.environment == WompiEnvironment.SANDBOX) "https://sandbox.wompi.co/v1" else "https://production.wompi.co/v1"
-        val privateKey = secrets.decrypt(checkNotNull(settings.privateKeyEnc), "${settings.barbershopId}:private")
+        val apiSettings = settingsService.apiSettings(settings)
+        val base = if (apiSettings.environment == WompiEnvironment.SANDBOX) "https://sandbox.wompi.co/v1" else "https://production.wompi.co/v1"
+        val privateKey = secrets.decrypt(checkNotNull(apiSettings.privateKeyEnc), "${apiSettings.barbershopId}:private")
         return try {
             val transaction = checkNotNull(builder.build().get().uri("$base/transactions/$id").headers { it.setBearerAuth(privateKey) }
                 .retrieve()
                 .onStatus({ it.value() == 401 || it.value() == 403 }) { _, response ->
                     logger.error("Credenciales Wompi inválidas; barbería={}; HTTP={}", settings.barbershopId, response.statusCode.value())
-                    settingsService.credentialsInvalid(settings, true)
+                    settingsService.credentialsInvalid(apiSettings, true)
                     throw ApiFailure(502, "Las credenciales de Wompi requieren revisión por la barbería")
                 }
                 .onStatus({ it.isError }) { _, _ -> throw ApiFailure(503, "No pudimos verificar el pago en este momento") }
                 .body(JsonNode::class.java)).path("data")
-            settingsService.credentialsInvalid(settings, false)
+            settingsService.credentialsInvalid(apiSettings, false)
             transaction
         } catch (failure: ApiFailure) {
             throw failure

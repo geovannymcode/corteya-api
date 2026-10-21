@@ -537,7 +537,9 @@ Los 5xx, 404, 408, 429, timeouts y errores de E/S de Wompi devuelven 503 para pe
 reintentos. Los 401/403 devuelven 502 y marcan `wompiCredentialsError` en el GET de
 payment-settings del OWNER. El log ERROR solo incluye barbería y código HTTP.
 Una consulta exitosa o la actualización de llaves limpia esa marca; los eventos de
-credenciales antiguas no alteran el diagnóstico de credenciales que ya se reemplazaron.
+credenciales de otro comercio/ambiente no alteran el diagnóstico de la configuración actual.
+Si se corrige la llave privada del mismo comercio y ambiente, los intentos anteriores
+usan esa llave para recuperar su consulta; sus firmas históricas se siguen validando.
 Una venta auténtica cuya referencia no pertenece a CorteYa devuelve 200 sin cambios;
 el WARN solo incluye barbería e id de transacción. Si alguna de las referencias
 (evento/API) es propia pero hay discrepancia, se devuelve 400 y se guarda antes un

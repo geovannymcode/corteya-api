@@ -308,9 +308,21 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         configureWompi()
         val created = create()
         val oldWebhook = inShop(shop) { checkNotNull(settings.current(shop).webhookId) }
-        inShop(shop) { settings.configure(shop, wompiRequest().copy(wompiPrivateKey = "prv_test_Replacement")) }
+        inShop(shop) { settings.configure(shop, wompiRequest().copy(wompiPublicKey = "pub_test_Replacement", wompiPrivateKey = "prv_test_Replacement")) }
         assertEquals(502, webhook(created, webhookIdOverride = oldWebhook,
             apiResponse = withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)).statusCode())
+        assertTrue(credentialsError().isNull)
+    }
+
+    @Test
+    fun `correcting the private key recovers earlier attempts from the same merchant`() {
+        configureWompi()
+        val created = create()
+        val oldWebhook = inShop(shop) { checkNotNull(settings.current(shop).webhookId) }
+        assertEquals(502, webhook(created, apiResponse = withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)).statusCode())
+        inShop(shop) { settings.configure(shop, wompiRequest().copy(wompiPrivateKey = "prv_test_Corrected")) }
+        assertEquals(200, webhook(created, webhookIdOverride = oldWebhook, apiPrivateKey = "prv_test_Corrected").statusCode())
+        assertEquals("APPROVED", depositStatus(appointmentId(created)))
         assertTrue(credentialsError().isNull)
     }
 
@@ -505,7 +517,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     private fun appointmentStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select status from appointment where barbershop_id = ? and id = ?", String::class.java, shop, id)) }
     private fun depositStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select status from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, id)) }
 
-    private fun webhook(created: JsonNode, valid: Boolean = true, status: String = "APPROVED", transaction: String = "tx-1", overrides: Map<String, Any> = emptyMap(), webhookIdOverride: String? = null, apiResponse: ResponseCreator? = null, foreignReference: String? = null): HttpResponse<String> {
+    private fun webhook(created: JsonNode, valid: Boolean = true, status: String = "APPROVED", transaction: String = "tx-1", overrides: Map<String, Any> = emptyMap(), webhookIdOverride: String? = null, apiResponse: ResponseCreator? = null, foreignReference: String? = null, apiPrivateKey: String = "prv_test_Private"): HttpResponse<String> {
         val reference = inShop(shop) { checkNotNull(jdbc.queryForObject("select reference from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, appointmentId(created))) }
         val tx = mapOf("id" to transaction, "status" to status, "amount_in_cents" to 1200000L, "currency" to "COP", "reference" to (foreignReference ?: reference))
         val text = "${transaction}${status}1200000${now.epochSecond}test_events_Events"
@@ -515,7 +527,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         provider.verify()
         provider.reset()
         if (valid) provider.expect(requestTo("https://sandbox.wompi.co/v1/transactions/$transaction"))
-            .andExpect(header("Authorization", "Bearer prv_test_Private"))
+            .andExpect(header("Authorization", "Bearer $apiPrivateKey"))
             .andExpect { assertFalse(TransactionSynchronizationManager.isActualTransactionActive()) }
             .andRespond(apiResponse ?: withSuccess(mapper.writeValueAsString(mapOf("data" to (tx + overrides))), MediaType.APPLICATION_JSON))
         val webhookId = webhookIdOverride ?: inShop(shop) { checkNotNull(settings.current(shop).webhookId) }

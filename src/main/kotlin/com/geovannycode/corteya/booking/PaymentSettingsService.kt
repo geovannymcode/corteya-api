@@ -32,6 +32,13 @@ class PaymentSettingsService(
 
     fun current(shop: UUID): PaymentSettings = repository.find(shop) ?: PaymentSettings(shop)
 
+    fun apiSettings(configuration: PaymentSettings): PaymentSettings = tenants.execute(configuration.barbershopId) {
+        // A corrected private key can recover old attempts from the same merchant/environment.
+        repository.find(configuration.barbershopId)?.takeIf {
+            it.mode == DepositMode.WOMPI && it.publicKey == configuration.publicKey && it.environment == configuration.environment
+        } ?: configuration
+    }
+
     fun credentialsInvalid(configuration: PaymentSettings, invalid: Boolean) = tenants.execute(configuration.barbershopId) {
         // An old attempt must not flag or clear credentials that the OWNER has since replaced.
         configuration.webhookId?.let { repository.credentialsInvalid(configuration.barbershopId, it, invalid) }
