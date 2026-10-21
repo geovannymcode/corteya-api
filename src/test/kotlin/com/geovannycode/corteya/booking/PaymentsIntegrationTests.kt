@@ -14,6 +14,8 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.AfterEach
@@ -25,8 +27,10 @@ import org.springframework.core.env.MapPropertySource
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.client.MockRestServiceServer
+import org.springframework.test.web.client.ResponseCreator
 import org.springframework.test.web.client.match.MockRestRequestMatchers.*
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
+import org.springframework.test.web.client.response.MockRestResponseCreators.withStatus
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.client.RestClient
 import tools.jackson.databind.JsonNode
@@ -226,6 +230,93 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(200, webhook(created, webhookIdOverride = oldWebhook).statusCode())
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = [404, 408, 429, 500, 502, 503, 504])
+    fun `transient Wompi HTTP errors remain retryable without exposing provider data`(status: Int) {
+        configureWompi()
+        val created = create()
+        val failure = withStatus(org.springframework.http.HttpStatus.valueOf(status))
+            .body("prv_test_Private https://provider.example/private +573001234567")
+        val response = webhook(created, apiResponse = failure)
+        assertEquals(503, response.statusCode(), response.body())
+        assertEquals("PENDING", depositStatus(appointmentId(created)))
+        assertTrue(credentialsError().isNull)
+        listOf("prv_test_Private", "provider.example", "+573001234567").forEach { assertFalse(response.body().contains(it)) }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [401, 403])
+    fun `invalid credentials return 502 persist an OWNER warning and log only tenant and HTTP code`(status: Int) {
+        configureWompi()
+        val created = create()
+        val logger = org.slf4j.LoggerFactory.getLogger(com.geovannycode.corteya.booking.internal.WompiGateway::class.java) as ch.qos.logback.classic.Logger
+        val appender = ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>().also { it.start(); logger.addAppender(it) }
+        try {
+            val response = webhook(created, apiResponse = withStatus(org.springframework.http.HttpStatus.valueOf(status))
+                .body("prv_test_Private https://provider.example/private +573001234567"))
+            assertEquals(502, response.statusCode())
+            assertEquals("Credenciales de Wompi inválidas", credentialsError().asString())
+            assertEquals("PENDING", depositStatus(appointmentId(created)))
+            val log = appender.list.single { it.level == ch.qos.logback.classic.Level.ERROR }
+            assertEquals("Credenciales Wompi inválidas; barbería=$shop; HTTP=$status", log.formattedMessage)
+            assertNull(log.throwableProxy)
+            listOf("prv_test_Private", "provider.example", "+573001234567").forEach { assertFalse(response.body().contains(it)) }
+        } finally { logger.detachAppender(appender); appender.stop() }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    fun `timeouts and IO failures remain retryable and do not expose exception messages`(timeout: Boolean) {
+        configureWompi()
+        val created = create()
+        val response = webhook(created, apiResponse = ResponseCreator {
+            if (timeout) throw java.net.SocketTimeoutException("prv_test_Private https://provider.example/private")
+            else throw java.io.IOException("prv_test_Private https://provider.example/private")
+        })
+        assertEquals(503, response.statusCode())
+        assertEquals("PENDING", depositStatus(appointmentId(created)))
+        assertTrue(credentialsError().isNull)
+        assertFalse(response.body().contains("prv_test_Private"))
+        assertFalse(response.body().contains("provider.example"))
+    }
+
+    @Test
+    fun `successful later query clears the credential warning`() {
+        configureWompi()
+        val created = create()
+        assertEquals(502, webhook(created, apiResponse = withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)).statusCode())
+        assertFalse(credentialsError().isNull)
+        assertEquals(200, webhook(created).statusCode())
+        assertTrue(credentialsError().isNull)
+    }
+
+    @Test
+    fun `OWNER key update clears the warning but a hold-only update preserves it`() {
+        configureWompi()
+        val created = create()
+        assertEquals(502, webhook(created, apiResponse = withStatus(org.springframework.http.HttpStatus.FORBIDDEN)).statusCode())
+        val path = "/api/v1/barbershops/pay-a/staff/payment-settings"
+        assertEquals(200, http("PUT", path, owner, PaymentSettingsRequest(DepositMode.WOMPI,
+            wompiEnvironment = WompiEnvironment.SANDBOX, holdMinutes = 20)).statusCode())
+        assertFalse(credentialsError().isNull)
+        assertEquals(200, http("PUT", path, owner, wompiRequest()).statusCode())
+        assertTrue(credentialsError().isNull)
+    }
+
+    @Test
+    fun `old attempt errors cannot mark replacement Wompi credentials invalid`() {
+        configureWompi()
+        val created = create()
+        val oldWebhook = inShop(shop) { checkNotNull(settings.current(shop).webhookId) }
+        inShop(shop) { settings.configure(shop, wompiRequest().copy(wompiPrivateKey = "prv_test_Replacement")) }
+        assertEquals(502, webhook(created, webhookIdOverride = oldWebhook,
+            apiResponse = withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)).statusCode())
+        assertTrue(credentialsError().isNull)
+    }
+
+    private fun credentialsError(): JsonNode = mapper.readTree(
+        http("GET", "/api/v1/barbershops/pay-a/staff/payment-settings", owner).body()).path("wompiCredentialsError")
+
     @Test
     fun `invalid webhook checksum returns 401 without contacting Wompi`() {
         configureWompi()
@@ -359,7 +450,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     private fun appointmentStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select status from appointment where barbershop_id = ? and id = ?", String::class.java, shop, id)) }
     private fun depositStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select status from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, id)) }
 
-    private fun webhook(created: JsonNode, valid: Boolean = true, status: String = "APPROVED", transaction: String = "tx-1", overrides: Map<String, Any> = emptyMap(), webhookIdOverride: String? = null): HttpResponse<String> {
+    private fun webhook(created: JsonNode, valid: Boolean = true, status: String = "APPROVED", transaction: String = "tx-1", overrides: Map<String, Any> = emptyMap(), webhookIdOverride: String? = null, apiResponse: ResponseCreator? = null): HttpResponse<String> {
         val reference = inShop(shop) { checkNotNull(jdbc.queryForObject("select reference from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, appointmentId(created))) }
         val tx = mapOf("id" to transaction, "status" to status, "amount_in_cents" to 1200000L, "currency" to "COP", "reference" to reference)
         val text = "${transaction}${status}1200000${now.epochSecond}test_events_Events"
@@ -371,7 +462,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         if (valid) provider.expect(requestTo("https://sandbox.wompi.co/v1/transactions/$transaction"))
             .andExpect(header("Authorization", "Bearer prv_test_Private"))
             .andExpect { assertFalse(TransactionSynchronizationManager.isActualTransactionActive()) }
-            .andRespond(withSuccess(mapper.writeValueAsString(mapOf("data" to (tx + overrides))), MediaType.APPLICATION_JSON))
+            .andRespond(apiResponse ?: withSuccess(mapper.writeValueAsString(mapOf("data" to (tx + overrides))), MediaType.APPLICATION_JSON))
         val webhookId = webhookIdOverride ?: inShop(shop) { checkNotNull(settings.current(shop).webhookId) }
         return http("POST", "/api/v1/webhooks/wompi/$webhookId", null, event)
     }

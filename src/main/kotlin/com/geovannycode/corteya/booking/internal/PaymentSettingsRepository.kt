@@ -13,21 +13,27 @@ class PaymentSettingsRepository(private val jdbc: JdbcTemplate) {
             r.getString("breb_key_type")?.let(BrebKeyType::valueOf), r.getString("breb_key"), r.getString("breb_holder_name"),
             r.getString("wompi_environment")?.let(WompiEnvironment::valueOf), r.getString("wompi_public_key"),
             r.getString("wompi_private_key_enc"), r.getString("wompi_integrity_secret_enc"), r.getString("wompi_events_secret_enc"),
-            r.getString("wompi_webhook_id")) }, shop,
+            r.getString("wompi_webhook_id"), r.getBoolean("wompi_credentials_invalid")) }, shop,
     ).singleOrNull()
+
+    fun credentialsInvalid(shop: UUID, webhookId: String, invalid: Boolean) {
+        jdbc.update("""update barbershop_payment_settings set wompi_credentials_invalid = ?
+            where barbershop_id = ? and wompi_webhook_id = ?""", invalid, shop, webhookId)
+    }
 
     fun save(s: PaymentSettings) {
         jdbc.update("""insert into barbershop_payment_settings (id, barbershop_id, deposit_mode, hold_minutes,
             breb_key_type, breb_key, breb_holder_name, wompi_environment, wompi_public_key, wompi_private_key_enc,
-            wompi_integrity_secret_enc, wompi_events_secret_enc, wompi_webhook_id)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            wompi_integrity_secret_enc, wompi_events_secret_enc, wompi_webhook_id, wompi_credentials_invalid)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict (barbershop_id) do update set deposit_mode = excluded.deposit_mode, hold_minutes = excluded.hold_minutes,
             breb_key_type = excluded.breb_key_type, breb_key = excluded.breb_key, breb_holder_name = excluded.breb_holder_name,
             wompi_environment = excluded.wompi_environment, wompi_public_key = excluded.wompi_public_key,
             wompi_private_key_enc = excluded.wompi_private_key_enc, wompi_integrity_secret_enc = excluded.wompi_integrity_secret_enc,
-            wompi_events_secret_enc = excluded.wompi_events_secret_enc, wompi_webhook_id = excluded.wompi_webhook_id
+            wompi_events_secret_enc = excluded.wompi_events_secret_enc, wompi_webhook_id = excluded.wompi_webhook_id,
+            wompi_credentials_invalid = excluded.wompi_credentials_invalid
             where barbershop_payment_settings.barbershop_id = ?""",
             UUID.randomUUID(), s.barbershopId, s.mode.name, s.holdMinutes, s.brebKeyType?.name, s.brebKey, s.brebHolderName,
-            s.environment?.name, s.publicKey, s.privateKeyEnc, s.integritySecretEnc, s.eventsSecretEnc, s.webhookId, s.barbershopId)
+            s.environment?.name, s.publicKey, s.privateKeyEnc, s.integritySecretEnc, s.eventsSecretEnc, s.webhookId, s.credentialsInvalid, s.barbershopId)
     }
 }

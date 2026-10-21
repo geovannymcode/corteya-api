@@ -27,7 +27,7 @@ data class PaymentSettingsResponse(
     val brebKeyType: BrebKeyType?, val brebKey: String?, val brebHolderName: String?,
     val wompiEnvironment: WompiEnvironment?, val wompiPublicKey: String?,
     val wompiPrivateKey: String?, val wompiIntegritySecret: String?, val wompiEventsSecret: String?,
-    val eventsUrl: String?,
+    val eventsUrl: String?, val wompiCredentialsError: String?,
 )
 
 data class PaymentInstructions(

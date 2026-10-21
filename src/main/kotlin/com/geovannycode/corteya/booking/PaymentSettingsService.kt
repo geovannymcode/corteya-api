@@ -32,6 +32,11 @@ class PaymentSettingsService(
 
     fun current(shop: UUID): PaymentSettings = repository.find(shop) ?: PaymentSettings(shop)
 
+    fun credentialsInvalid(configuration: PaymentSettings, invalid: Boolean) = tenants.execute(configuration.barbershopId) {
+        // An old attempt must not flag or clear credentials that the OWNER has since replaced.
+        configuration.webhookId?.let { repository.credentialsInvalid(configuration.barbershopId, it, invalid) }
+    }
+
     fun bookingEnabled(shop: UUID): Boolean = tenants.execute(shop) { repository.find(shop) != null }
 
     fun requireConfigured(shop: UUID): PaymentSettings = repository.find(shop)
@@ -70,7 +75,10 @@ class PaymentSettingsService(
                     integritySecretEnc = encrypted(request.wompiIntegritySecret, old?.integritySecretEnc, "${prefix}_integrity_[A-Za-z0-9]+", "integrity"),
                     eventsSecretEnc = encrypted(request.wompiEventsSecret, old?.eventsSecretEnc, "${prefix}_events_[A-Za-z0-9]+", "events"),
                     webhookId = (if (sameCredentials) old.webhookId else null)
-                        ?: secrets.encrypt(shop.toString(), "wompi-webhook"))
+                        ?: secrets.encrypt(shop.toString(), "wompi-webhook"),
+                    credentialsInvalid = sameCredentials && old.credentialsInvalid &&
+                        request.wompiPublicKey == null && request.wompiPrivateKey == null &&
+                        request.wompiIntegritySecret == null && request.wompiEventsSecret == null)
             }
         }
         repository.save(settings)
@@ -91,7 +99,8 @@ class PaymentSettingsService(
     private fun response(s: PaymentSettings) = PaymentSettingsResponse(s.mode, s.holdMinutes,
         s.brebKeyType, s.brebKey, s.brebHolderName, s.environment, s.publicKey,
         s.privateKeyEnc?.let { "configurado ✓" }, s.integritySecretEnc?.let { "configurado ✓" }, s.eventsSecretEnc?.let { "configurado ✓" },
-        s.webhookId?.let { "${publicBaseUrl.trimEnd('/')}/api/v1/webhooks/wompi/$it" })
+        s.webhookId?.let { "${publicBaseUrl.trimEnd('/')}/api/v1/webhooks/wompi/$it" },
+        if (s.credentialsInvalid) "Credenciales de Wompi inválidas" else null)
 
     private fun validateBreb(type: BrebKeyType?, raw: String?): String {
         val key = raw?.trim()?.takeIf { it.length <= 254 } ?: invalid()

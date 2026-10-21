@@ -533,6 +533,11 @@ y señal LATE_PAYMENT, sin perder el registro. Los eventos duplicados son idempo
 Cada transición deja un `deposit_event` sin nombres, teléfonos ni cuerpos del proveedor.
 El job también expira los intentos PENDING de las citas vencidas y aísla fallos por barbería.
 Errores de proveedor, firmas y parsing nunca registran cuerpos ni credenciales.
+Los 5xx, 404, 408, 429, timeouts y errores de E/S de Wompi devuelven 503 para permitir
+reintentos. Los 401/403 devuelven 502 y marcan `wompiCredentialsError` en el GET de
+payment-settings del OWNER. El log ERROR solo incluye barbería y código HTTP.
+Una consulta exitosa o la actualización de llaves limpia esa marca; los eventos de
+credenciales antiguas no alteran el diagnóstico de credenciales que ya se reemplazaron.
 
 Para probar localmente: usa la sesión OWNER demo en Swagger, configura una llave Bre-B
 válida o las cuatro llaves de tu comercio sandbox, crea una reserva con otra sesión de

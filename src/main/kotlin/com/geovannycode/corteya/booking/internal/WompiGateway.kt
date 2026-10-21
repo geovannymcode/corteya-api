@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatterBuilder
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import org.slf4j.LoggerFactory
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.client.RestClient
 import tools.jackson.databind.JsonNode
@@ -15,9 +16,11 @@ import tools.jackson.databind.JsonNode
 @Component
 class WompiGateway(
     private val secrets: PaymentSecrets,
+    private val settingsService: PaymentSettingsService,
     @Qualifier("wompiRestClientBuilder") private val builder: RestClient.Builder,
     @Value("\${payments.redirect-url:corteya://appointments/}") private val redirectUrl: String,
 ) : PaymentGateway {
+    private val logger = LoggerFactory.getLogger(javaClass)
     override val mode = DepositMode.WOMPI
 
     override fun instructions(settings: PaymentSettings, payment: DepositPayment, appointment: AppointmentEntity): PaymentInstructions {
@@ -41,8 +44,19 @@ class WompiGateway(
         val base = if (settings.environment == WompiEnvironment.SANDBOX) "https://sandbox.wompi.co/v1" else "https://production.wompi.co/v1"
         val privateKey = secrets.decrypt(checkNotNull(settings.privateKeyEnc), "${settings.barbershopId}:private")
         return try {
-            checkNotNull(builder.build().get().uri("$base/transactions/$id").headers { it.setBearerAuth(privateKey) }
-                .retrieve().body(JsonNode::class.java)).path("data")
+            val transaction = checkNotNull(builder.build().get().uri("$base/transactions/$id").headers { it.setBearerAuth(privateKey) }
+                .retrieve()
+                .onStatus({ it.value() == 401 || it.value() == 403 }) { _, response ->
+                    logger.error("Credenciales Wompi inválidas; barbería={}; HTTP={}", settings.barbershopId, response.statusCode.value())
+                    settingsService.credentialsInvalid(settings, true)
+                    throw ApiFailure(502, "Las credenciales de Wompi requieren revisión por la barbería")
+                }
+                .onStatus({ it.isError }) { _, _ -> throw ApiFailure(503, "No pudimos verificar el pago en este momento") }
+                .body(JsonNode::class.java)).path("data")
+            settingsService.credentialsInvalid(settings, false)
+            transaction
+        } catch (failure: ApiFailure) {
+            throw failure
         } catch (_: Exception) {
             // Provider exceptions can contain URLs, credentials or personal response data; never attach them.
             throw ApiFailure(503, "No pudimos verificar el pago en este momento")
