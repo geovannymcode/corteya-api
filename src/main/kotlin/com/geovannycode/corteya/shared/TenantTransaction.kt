@@ -22,14 +22,26 @@ class TenantTransaction(manager: PlatformTransactionManager, private val jdbc: J
                 jdbc.queryForObject("select set_config('app.barbershop_id', ?, true)", String::class.java, barbershopId.toString())
             }
             active.set(barbershopId)
+            var failure: Throwable? = null
             try {
                 val result = operation()
                 // Flush tenant writes before a global identity transaction visits another shop.
                 entityManager.flush()
                 if (previous == null) entityManager.clear()
                 Result(result)
+            } catch (original: Throwable) {
+                failure = original
+                throw original
             } finally {
-                if (previous == null) active.remove() else active.set(previous)
+                try {
+                    jdbc.queryForObject("select set_config('app.barbershop_id', ?, true)", String::class.java, previous?.toString().orEmpty())
+                } catch (restorationFailure: Exception) {
+                    // An aborted PostgreSQL transaction cannot execute SQL until rollback; preserve its original error.
+                    if (failure == null) throw restorationFailure
+                    failure.addSuppressed(restorationFailure)
+                } finally {
+                    if (previous == null) active.remove() else active.set(previous)
+                }
             }
         }).value
     }

@@ -180,6 +180,29 @@ class RowLevelSecurityIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `tenant visit clears database context before the outer transaction ends`() {
+        transactions.executeWithoutResult {
+            inShop(shopA) { assertEquals(1, jdbc.queryForList("SELECT * FROM appointment").size) }
+            assertTrue(jdbc.queryForList("SELECT * FROM appointment").isEmpty())
+            assertEquals("", jdbc.queryForObject("select current_setting('app.barbershop_id', true)", String::class.java))
+            inShop(shopB) { assertEquals(shopB, jdbc.queryForList("SELECT * FROM appointment").single()["barbershop_id"]) }
+            assertTrue(jdbc.queryForList("SELECT * FROM appointment").isEmpty())
+        }
+    }
+
+    @Test
+    fun `nested tenant visit restores the previous database context`() {
+        transactions.executeWithoutResult {
+            inShop(shopA) {
+                inShop(shopA) { assertEquals(1, jdbc.queryForList("SELECT * FROM appointment").size) }
+                assertEquals(shopA.toString(), jdbc.queryForObject("select current_setting('app.barbershop_id', true)", String::class.java))
+                assertEquals(shopA, jdbc.queryForList("SELECT * FROM appointment").single()["barbershop_id"])
+            }
+            assertTrue(jdbc.queryForList("SELECT * FROM appointment").isEmpty())
+        }
+    }
+
+    @Test
     fun `tenant visits participate atomically in an outer identity transaction`() {
         assertFailsWith<IllegalStateException> { transactions.executeWithoutResult {
             inShop(shopA) { jdbc.update("update customer set name = 'Changed'") }
