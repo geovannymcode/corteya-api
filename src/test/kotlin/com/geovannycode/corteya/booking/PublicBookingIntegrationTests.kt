@@ -64,6 +64,7 @@ class PublicBookingIntegrationTests : PostgresIntegrationTest(web = true) {
         owners.clear()
         listOf(shop to "shop-a", otherShop to "shop-b").forEach { (id, slug) ->
             inShop(id) { jdbc.update("insert into barbershop (id, slug, name, primary_color, secondary_color) values (?, ?, 'Piloto', '#112233', '#445566')", id, slug) }
+            configureLegacyTestPayments(id)
         }
         listOf(barber to shop, secondBarber to shop, otherBarber to otherShop).forEach { (id, tenant) ->
             inShop(tenant) { jdbc.update("insert into barber (id, barbershop_id, name) values (?, ?, 'Barbero')", id, tenant) }

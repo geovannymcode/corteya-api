@@ -65,3 +65,12 @@ auth:
     phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
     template: ${WHATSAPP_OTP_TEMPLATE:}
     language: ${WHATSAPP_TEMPLATE_LANGUAGE:es_CO}
+
+# Credentials are never logged. Sandbox convenience variables are read only by the dev initializer.
+payments:
+  secrets:
+    key: ${PAYMENT_SECRETS_KEY:}
+    version: ${PAYMENT_SECRETS_KEY_VERSION:1}
+    previous-keys: ${PAYMENT_SECRETS_PREVIOUS_KEYS:}
+  public-base-url: ${PAYMENTS_PUBLIC_BASE_URL:http://localhost:8080}
+  redirect-url: ${PAYMENTS_REDIRECT_URL:corteya://appointments/}

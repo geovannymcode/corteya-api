@@ -18,6 +18,14 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
         .createQuery("select e from AppointmentEntity e where e.barbershopId = :barbershopId and e.id = :id", AppointmentEntity::class.java)
         .setParameter("barbershopId", barbershopId).setParameter("id", id).resultList.singleOrNull()
 
+    fun lock(barbershopId: UUID, id: UUID): AppointmentEntity? = jdbc.query(
+        "select * from appointment where barbershop_id = ? and id = ? for update",
+        { row, _ -> row.toAppointment() }, barbershopId, id).singleOrNull()
+
+    fun setStatus(barbershopId: UUID, id: UUID, status: AppointmentStatus) {
+        jdbc.update("update appointment set status = ?, version = version + 1 where barbershop_id = ? and id = ?", status.name, barbershopId, id)
+    }
+
     fun findAll(barbershopId: UUID): List<AppointmentEntity> = entityManager
         .createQuery("select e from AppointmentEntity e where e.barbershopId = :barbershopId", AppointmentEntity::class.java)
         .setParameter("barbershopId", barbershopId).resultList

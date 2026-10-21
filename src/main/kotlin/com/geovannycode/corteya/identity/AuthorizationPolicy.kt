@@ -50,5 +50,17 @@ class AuthorizationPolicy(
         }
         return AgendaScope(shop.id, requestedBarberId)
     }
+    fun owner(userId: UUID, slug: String): UUID {
+        user(userId)
+        val shop = shops.findBySlug(slug) ?: notFound()
+        if (identities.membership(userId, shop.id)?.role != StaffRole.OWNER) notFound()
+        return shop.id
+    }
+
+    fun appointmentCustomer(userId: UUID, barbershopId: UUID, customerId: UUID) {
+        user(userId)
+        if (!identities.ownsCustomer(userId, barbershopId, customerId)) notFound()
+    }
+
     private fun notFound(): Nothing = throw AuthFailure(404, "No encontramos el recurso solicitado en esta barbería")
 }

@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 
 @Component
-class HoldExpirationJob(private val bookings: AppointmentRepository, private val clock: Clock, private val shops: BarbershopService, private val tenants: TenantTransaction) {
+class HoldExpirationJob(private val bookings: AppointmentRepository, private val clock: Clock, private val shops: BarbershopService, private val tenants: TenantTransaction, private val deposits: DepositRepository) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     // TODO: use ShedLock if the deployment ever runs more than one instance.
@@ -17,7 +17,10 @@ class HoldExpirationJob(private val bookings: AppointmentRepository, private val
         val now = clock.instant()
         shops.activeIds().forEach { id ->
             try {
-                tenants.execute(id) { bookings.expireForShop(id, now) }
+                tenants.execute(id) {
+                    bookings.expireForShop(id, now)
+                    deposits.expirePending(id, now)
+                }
             } catch (failure: Exception) {
                 logger.warn("No se pudieron expirar los holds de la barbería {}; tipo={}", id, failure.javaClass.name)
             }

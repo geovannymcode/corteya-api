@@ -1,7 +1,7 @@
-# CorteYa API — fases 1, 2 y 3
+# CorteYa API — fases 1–4
 
 Backend multi-barbería con PostgreSQL, disponibilidad, reservas autenticadas, OTP,
-JWT RS256, roles y expiración de señales. El catálogo y la disponibilidad son públicos.
+JWT RS256, roles, RLS y señales por Bre-B manual o checkout Wompi. El catálogo y la disponibilidad son públicos.
 La fase 3 añade únicamente Spring Security y OAuth2 Resource Server, con versiones
 administradas por el BOM de Spring Boot. En Boot 4 el starter autorizado de Resource
 Server se llama `spring-boot-starter-security-oauth2-resource-server`
@@ -95,7 +95,7 @@ sin cambios; V5 aplica RLS y migra el directorio de identidad desde los datos ex
 
 | Tablas | RLS | Comportamiento |
 | --- | --- | --- |
-| `barber`, `service`, `barber_service`, `working_hours`, `time_off`, `customer`, `appointment` | ENABLE + FORCE | USING y WITH CHECK exigen que `barbershop_id` coincida con el contexto transaccional. Sin contexto: cero filas; INSERT rechazado. |
+| `barber`, `service`, `barber_service`, `working_hours`, `time_off`, `customer`, `appointment`, `barbershop_payment_settings`, `deposit_payment`, `deposit_event` | ENABLE + FORCE | USING y WITH CHECK exigen que `barbershop_id` coincida con el contexto transaccional. Sin contexto: cero filas; INSERT rechazado. |
 | `barbershop` | ENABLE + FORCE | Sin contexto solo se descubren activas. Un contexto válido puede leer también su propia barbería inactiva. INSERT/UPDATE/DELETE requieren contexto igual a `id`. |
 | `app_user`, `otp_challenge`, `refresh_token` | Sin RLS, identidad global | Login y credenciales aislados en código por usuario, teléfono verificado o hash secreto. |
 | `staff_membership` | Sin RLS, excepción de identidad | Conserva `barbershop_id`, índice y FK compuesta; login y autorización necesitan membresías entre barberías, filtradas por usuario. |
@@ -424,6 +424,134 @@ que anonimiza el teléfono. V4 agrega los índices de retención; V1–V3 no cam
 Flyway necesita permiso para crear `btree_gist`. Hibernate usa `ddl-auto: validate`;
 no cambia el esquema. No modifiques migraciones ya aplicadas: crea una nueva versión.
 
+## Pagos de señales (fase 4)
+
+Los fondos van a la cuenta asociada a la llave Bre-B o al comercio Wompi de la barbería.
+CorteYa entrega instrucciones y registra estados; no cobra en una cuenta propia.
+V6 agrega configuración por barbería y V7 los intentos y su historial. Las tres tablas
+nuevas tienen ENABLE + FORCE RLS, filtros explícitos por barbería y FK compuestas.
+No se modificaron V1–V5 ni se añadieron dependencias.
+
+Los pagos viven en `booking/`, junto al ciclo de vida de la cita, para evitar dependencias
+circulares entre módulos. `PaymentGateway` tiene dos implementaciones reales:
+`BreBManualGateway` y `WompiGateway`. Toda aprobación pasa por `DepositConfirmationService`.
+`SlotGenerator` conserva su lógica pura. Modulith verifica los mismos siete módulos.
+
+### Configuración y secretos
+
+El OWNER configura su barbería usando Swagger o `GET/PUT
+/api/v1/barbershops/{slug}/staff/payment-settings` con su JWT. El PUT permite:
+
+- `NONE`: cita confirmada al crear, señal 0, sin hold ni intento de pago.
+- `BREB_MANUAL`: llave `CELULAR`, `ALIAS`, `CORREO` o `DOCUMENTO` y titular; hold por defecto 30 minutos.
+- `WOMPI`: ambiente `SANDBOX` o `PRODUCTION` y las cuatro llaves de ese comercio; hold por defecto 15 minutos.
+
+`holdMinutes` permite configurar el plazo por barbería (1–1440 minutos). Una barbería
+sin configuración todavía no acepta reservas: el POST devuelve 409 con
+«Esta barbería todavía no recibe reservas en línea», y la ficha pública expone
+`bookingEnabled=false`. El OWNER debe elegir el modo,
+incluido `NONE` si quiere trabajar sin señal. No se asigna una cuenta receptora implícita.
+
+Para Wompi define `PAYMENT_SECRETS_KEY` con 32 bytes aleatorios codificados en Base64:
+
+```sh
+openssl rand -base64 32
+# Guarda el resultado únicamente en tu .env local o gestor de secretos.
+```
+
+AES-256-GCM usa un nonce aleatorio de 12 bytes por valor, tag de 128 bits y AAD con
+barbería/campo. El sobre persistido contiene versión, nonce y texto cifrado; los
+secretos de Wompi nunca se devuelven. El GET muestra `configurado ✓`. Un secreto omitido
+en un PUT de Wompi conserva el anterior, validando que corresponda al ambiente elegido.
+Los formatos de llaves y URLs se verificaron en la [documentación oficial de ambientes](https://docs.wompi.co/docs/colombia/ambientes-y-llaves/).
+
+Rotación de la llave maestra: conserva la llave vieja en `PAYMENT_SECRETS_PREVIOUS_KEYS`
+(formato secreto `1:base64,2:base64`), configura una llave nueva y aumenta
+`PAYMENT_SECRETS_KEY_VERSION`. Cada intento Wompi conserva una instantánea de la configuración con los secretos ya
+cifrados. Un cambio de llaves o ambiente genera una nueva URL de eventos; las URLs
+anteriores siguen resolviendo sus intentos, incluso si luego se elige NONE o Bre-B.
+Los nuevos sobres usan esa versión; los anteriores
+siguen leyéndose con el llavero viejo. Un PUT Wompi reescribe sus secretos con la llave
+actual. Conserva las versiones viejas mientras existan sobres o IDs de webhook que
+las usen; no hay un job automático de recifrado. Nunca imprimas estas variables.
+
+Define `PAYMENTS_PUBLIC_BASE_URL` con el origen público HTTPS del backend para que el
+OWNER copie la URL de eventos en su panel Wompi. `PAYMENTS_REDIRECT_URL` es el prefijo
+del deep link de la app (por defecto `corteya://appointments/`); el servidor añade el
+`publicToken`. La redirección solo abre la app: no confirma el pago.
+
+### Conveniencia exclusiva de dev
+
+Al arrancar con `--spring.profiles.active=dev`, la demo `barberia-piloto` se configura
+en WOMPI/SANDBOX solo cuando están presentes y no vacías las cuatro variables:
+`WOMPI_SANDBOX_PUBLIC_KEY`, `WOMPI_SANDBOX_PRIVATE_KEY`,
+`WOMPI_SANDBOX_INTEGRITY_SECRET` y `WOMPI_SANDBOX_EVENTS_SECRET`.
+También necesitas la llave maestra `PAYMENT_SECRETS_KEY`. Se validan y cifran por el
+mismo camino que el PUT del OWNER. Una configuración Wompi completa pero inválida
+impide el arranque con un error genérico, sin revelar valores.
+
+Si falta alguna variable, la demo queda en BREB_MANUAL con hold de 30 minutos y un
+alias **sintético `@DEMO` que debes reemplazar antes de recibir dinero**. Cada arranque
+dev aplica esta configuración a la demo; no cambia otras barberías. Fuera de `dev`,
+las cuatro variables sandbox se ignoran. La llave maestra sí se usa en cualquier
+perfil que tenga comercios Wompi. `.env.example` no contiene sus valores.
+
+### Flujo y endpoints
+
+El POST de reservas añade `paymentInstructions`. Bre-B devuelve llave, titular, monto,
+referencia y vencimiento. Wompi devuelve `checkoutUrl`, `amountInCents` como Long y
+`checkoutParameters` con los nombres oficiales (`public-key`, `currency`,
+`amount-in-cents`, `reference`, `expiration-time`, `redirect-url`, `signature:integrity`).
+El monto COP se multiplica por 100 comprobando overflow. El servidor firma
+`referencia + centavos + COP + expiration-time + secreto` con SHA-256, según la
+[guía oficial de checkout](https://docs.wompi.co/docs/colombia/widget-checkout-web/).
+`expiration-time` se serializa exactamente en UTC con milisegundos para Wompi;
+las fechas propias de la API conservan el offset de Bogotá.
+
+| Endpoint | Acceso y resultado |
+| --- | --- |
+| `POST /api/v1/appointments/{publicToken}/payment-attempts` | Solo cliente dueño. Nuevo intento Wompi tras DECLINED/ERROR con hold vigente; referencia con sufijo `-1`, `-2`, etc. |
+| `GET /api/v1/barbershops/{slug}/staff/deposits?status=PENDING` | OWNER ve todos; BARBER solo sus citas. También permite consultar `LATE_PAYMENT` para atención manual. |
+| `POST /api/v1/barbershops/{slug}/staff/appointments/{id}/deposit/confirm` | Bre-B: OWNER o barbero asignado; registra actor y hora. |
+| `POST /api/v1/barbershops/{slug}/staff/appointments/{id}/deposit/reject` | Bre-B: rechaza la señal, cancela la cita y libera el horario. |
+| `POST /api/v1/webhooks/wompi/{webhookId}` | Público, sin JWT; checksum obligatorio, límite de 64 KiB incluso sin Content-Length. |
+
+El ID del webhook es un sobre aleatorio AES-GCM que oculta y autentica el UUID de la
+barbería. Solo después de descifrarlo se abre el contexto RLS y se comprueba el ID
+persistido; no existe directorio global de pagos, rol privilegiado ni SECURITY DEFINER.
+Se valida el checksum en tiempo constante con las propiedades declaradas en el evento,
+timestamp y secreto de eventos, siguiendo la [guía oficial de eventos](https://docs.wompi.co/docs/colombia/eventos/).
+Después se consulta `GET /v1/transactions/{id}` con la llave privada del comercio en el
+ambiente correcto, fuera de toda transacción, con timeout de conexión/lectura.
+Referencia, id, moneda, monto y estado deben coincidir antes de cambiar datos; ver la
+[consulta oficial de transacciones](https://docs.wompi.co/docs/colombia/transacciones/).
+
+La confirmación bloquea cita e intento en una transacción corta. Si el hold venció,
+libera primero los holds caducados. Un savepoint permite que el exclusion constraint
+arbitre la recuperación del horario: libre → CONFIRMED/APPROVED; ocupado → cita EXPIRED
+y señal LATE_PAYMENT, sin perder el registro. Los eventos duplicados son idempotentes.
+Cada transición deja un `deposit_event` sin nombres, teléfonos ni cuerpos del proveedor.
+El job también expira los intentos PENDING de las citas vencidas y aísla fallos por barbería.
+Errores de proveedor, firmas y parsing nunca registran cuerpos ni credenciales.
+Los 5xx, 404, 408, 429, timeouts y errores de E/S de Wompi devuelven 503 para permitir
+reintentos. Los 401/403 devuelven 502 y marcan `wompiCredentialsError` en el GET de
+payment-settings del OWNER. El log ERROR solo incluye barbería y código HTTP.
+Una consulta exitosa o la actualización de llaves limpia esa marca; los eventos de
+credenciales de otro comercio/ambiente no alteran el diagnóstico de la configuración actual.
+Si se corrige la llave privada del mismo comercio y ambiente, los intentos anteriores
+usan esa llave para recuperar su consulta; sus firmas históricas se siguen validando.
+Una venta auténtica cuya referencia no pertenece a CorteYa devuelve 200 sin cambios;
+el WARN solo incluye barbería e id de transacción. Si alguna de las referencias
+(evento/API) es propia pero hay discrepancia, se devuelve 400 y se guarda antes un
+`deposit_event` con estado sin cambiar y un código `reason` predefinido, sin valores
+del proveedor ni datos personales. V8 agrega el diagnóstico y V9 el motivo de auditoría.
+
+Para probar localmente: usa la sesión OWNER demo en Swagger, configura una llave Bre-B
+válida o las cuatro llaves de tu comercio sandbox, crea una reserva con otra sesión de
+cliente y confirma/rechaza como staff. Para recibir webhooks reales necesitas una URL
+HTTPS pública configurada en el panel del mismo ambiente Wompi. La suite automática
+simula ese proveedor con `MockRestServiceServer`; no mueve fondos ni usa llaves reales.
+
 ## Pruebas
 
 Con Docker en ejecución, sin levantar Compose ni exportar `.env`:
@@ -455,7 +583,7 @@ Informe: `build/reports/tests/test/index.html`. JAR ejecutable: `build/libs/cort
 
 ## TODO — fases posteriores
 
-- Fase 4: instrucciones y confirmación Bre-B/Wompi en cuentas de los barberos; webhooks.
+- Reembolsos automáticos y notificaciones/recordatorios (fase 5); un `LATE_PAYMENT` requiere devolución manual o reagendamiento por el barbero.
 - ShedLock si se despliegan varias instancias.
 - Cancelación, asistencia, notificaciones y recordatorios.
 - Panel admin Vaadin, app Flutter y entrada por QR/link.
