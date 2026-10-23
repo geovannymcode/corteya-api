@@ -23,6 +23,8 @@ import kotlin.test.*
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.jdbc.core.JdbcTemplate
@@ -306,6 +308,59 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(404, send("GET", route, token = owner.access).statusCode())
     }
 
+    @ParameterizedTest
+    @EnumSource(StaffRole::class)
+    fun `me memberships include the current shop slug and name for OWNER and BARBER`(role: StaffRole) {
+        val assigned = if (role == StaffRole.BARBER) barber else null
+        val me = staff("3001111111", role.name, assigned)
+        inShop(shop) { jdbc.update("update barbershop set name = 'Barbería del Centro' where id = ?", shop) }
+        val response = send("GET", "/api/v1/me", token = me.access)
+        assertEquals(200, response.statusCode(), response.body())
+        val memberships = body(response).path("memberships")
+        assertEquals(1, memberships.size())
+        val membership = memberships.single()
+        assertEquals(shop.toString(), membership.path("barbershopId").asString())
+        assertEquals(role.name, membership.path("role").asString())
+        if (assigned == null) assertTrue(membership.path("barberId").isNull)
+        else assertEquals(assigned.toString(), membership.path("barberId").asString())
+        assertEquals("shop-a", membership.path("barbershopSlug").asString())
+        assertEquals("Barbería del Centro", membership.path("barbershopName").asString())
+        val publicShop = body(send("GET", "/api/v1/barbershops/shop-a"))
+        assertTrue(publicShop.path("id").isMissingNode)
+        assertTrue(publicShop.path("barbershopId").isMissingNode)
+    }
+
+    @ParameterizedTest
+    @EnumSource(StaffRole::class)
+    fun `me retains inactive shop metadata alongside memberships in another shop`(role: StaffRole) {
+        val assigned = if (role == StaffRole.BARBER) barber else null
+        val me = staff("3001111111", role.name, assigned)
+        jdbc.update("insert into staff_membership (id, user_id, barbershop_id, role, barber_id) values (?, ?, ?, ?, ?)",
+            UUID.randomUUID(), me.id, otherShop, role.name, if (role == StaffRole.BARBER) otherBarber else null)
+        inShop(otherShop) {
+            jdbc.update("update barbershop set active = false, name = 'Barbería inactiva' where id = ?", otherShop)
+        }
+        val response = send("GET", "/api/v1/me", token = me.access)
+        assertEquals(200, response.statusCode(), response.body())
+        val memberships = body(response).path("memberships")
+        assertEquals(2, memberships.size())
+        val inactive = memberships.single { it.path("barbershopId").asString() == otherShop.toString() }
+        assertEquals("shop-b", inactive.path("barbershopSlug").asString())
+        assertEquals("Barbería inactiva", inactive.path("barbershopName").asString())
+        val active = memberships.single { it.path("barbershopId").asString() == shop.toString() }
+        assertEquals("shop-a", active.path("barbershopSlug").asString())
+        assertEquals("Piloto", active.path("barbershopName").asString())
+        assertEquals(404, send("GET", "/api/v1/barbershops/shop-b").statusCode())
+    }
+
+    @Test
+    fun `me returns an empty membership list for a customer`() {
+        val me = login("3001234567")
+        val response = send("GET", "/api/v1/me", token = me.access)
+        assertEquals(200, response.statusCode(), response.body())
+        assertEquals(0, body(response).path("memberships").size())
+    }
+
     @Test
     fun `my appointments contains only owned rows grouped into upcoming and past`() {
         val me = login("3001234567")
@@ -374,6 +429,14 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         val scheme = document.path("components").path("securitySchemes").path("bearerAuth")
         assertEquals("http", scheme.path("type").asString())
         assertEquals("bearer", scheme.path("scheme").asString())
+        val membershipSchema = document.path("components").path("schemas").path("MembershipResponse").path("properties")
+        assertEquals("string", membershipSchema.path("barbershopSlug").path("type").asString())
+        assertEquals("string", membershipSchema.path("barbershopName").path("type").asString())
+        val meSchema = document.path("components").path("schemas").path("MeResponse").path("properties")
+        assertEquals("#/components/schemas/MembershipResponse", meSchema.path("memberships").path("items").path("\$ref").asString())
+        val publicSchema = document.path("components").path("schemas").path("BarbershopResponse").path("properties")
+        assertTrue(publicSchema.path("id").isMissingNode)
+        assertTrue(publicSchema.path("barbershopId").isMissingNode)
         val booking = document.path("components").path("schemas").path("CreateAppointmentRequest").path("properties")
         assertEquals(3, booking.size())
         assertTrue(booking.path("customerName").isMissingNode)
