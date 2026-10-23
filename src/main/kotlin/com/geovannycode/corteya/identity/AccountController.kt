@@ -2,7 +2,6 @@ package com.geovannycode.corteya.identity
 
 import com.geovannycode.corteya.identity.dto.MeResponse
 import com.geovannycode.corteya.identity.dto.RenameBody
-import com.geovannycode.corteya.identity.internal.IdentityRepository
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.security.SecurityRequirement
 import jakarta.validation.Valid
@@ -21,12 +20,13 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 @RequestMapping("/api/v1/me")
 @SecurityRequirement(name = "bearerAuth")
-class AccountController(private val accounts: AccountService, private val policy: AuthorizationPolicy, private val store: IdentityRepository) {
+class AccountController(private val accounts: AccountService, private val policy: AuthorizationPolicy) {
     @GetMapping
-    @Operation(summary = "Perfil y membresías actuales del usuario autenticado")
+    @Operation(summary = "Perfil y membresías actuales del usuario autenticado",
+        description = "Cada membresía incluye slug y nombre actuales de la barbería, también si está inactiva")
     fun me(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<MeResponse> {
         val user = policy.user(UUID.fromString(jwt.subject))
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(MeResponse(user.id, user.phone, user.name, user.platformAdmin, store.memberships(user.id)))
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(MeResponse(user.id, user.phone, user.name, user.platformAdmin, accounts.memberships(user.id)))
     }
 
     @PatchMapping

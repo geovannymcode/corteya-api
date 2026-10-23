@@ -187,7 +187,7 @@ En Swagger usa **Authorize** con el access token para los endpoints protegidos.
 | `POST /api/v1/auth/otp/verify` | Público; `{phone, code}` → access y refresh tokens |
 | `POST /api/v1/auth/refresh` | Público; `{refreshToken}` → par nuevo, revocando el refresh anterior |
 | `POST /api/v1/auth/logout` | Público; `{refreshToken}` → 204, revoca su familia; idempotente |
-| `GET /api/v1/me` | JWT; perfil y membresías actuales |
+| `GET /api/v1/me` | JWT; perfil y membresías actuales con `barbershopId`, `role`, `barberId`, `barbershopSlug` y `barbershopName` |
 | `PATCH /api/v1/me` | JWT; `{name}` → 204 |
 | `DELETE /api/v1/me` | JWT; 204, anonimiza cuenta y clientes, conserva citas |
 | `GET /api/v1/me/appointments` | JWT; citas propias en `upcoming` y `past`, según su hora de fin |
@@ -198,6 +198,12 @@ En Swagger usa **Authorize** con el access token para los endpoints protegidos.
 | `POST /api/v1/barbershops/{slug}/appointments` | JWT con rol CUSTOMER; `{barberId, serviceId, startsAt}` → 201 |
 | `GET /api/v1/appointments/{publicToken}` | JWT; propietario o staff de esa barbería; cualquier otro recibe 404 |
 | `GET /api/v1/barbershops/{slug}/staff/agenda?date=YYYY-MM-DD` | BARBER: solo su barbero; OWNER: todos |
+
+`GET /api/v1/me` devuelve el slug y nombre actuales de cada barbería vinculada,
+incluidas las inactivas. Los datos se resuelven por el servicio de barberías dentro de
+`TenantTransaction`, usando únicamente los IDs de las membresías del usuario autenticado.
+Un cliente sin membresías recibe `memberships: []`. El JWT conserva sus claims actuales.
+La ficha pública `GET /api/v1/barbershops/{slug}` conserva su contrato y no expone IDs.
 
 El OWNER puede filtrar la agenda con `barberId=UUID`. Si un BARBER solicita otro barbero,
 responde 404, incluso dentro de su barbería. Un staff de otra barbería también recibe 404.

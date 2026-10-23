@@ -1,13 +1,25 @@
 package com.geovannycode.corteya.identity
 
 import com.geovannycode.corteya.identity.internal.IdentityRepository
+import com.geovannycode.corteya.identity.dto.MembershipResponse
+import com.geovannycode.corteya.barbershop.BarbershopService
+import com.geovannycode.corteya.shared.TenantTransaction
 import java.time.Clock
 import java.util.UUID
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
 @Service
-class AccountService(private val store: IdentityRepository, private val clock: Clock) {
+class AccountService(private val store: IdentityRepository, private val clock: Clock,
+    private val shops: BarbershopService, private val tenants: TenantTransaction) {
+    fun memberships(userId: UUID): List<MembershipResponse> = store.memberships(userId).map { membership ->
+        tenants.execute(membership.barbershopId) {
+            val shop = shops.findById(membership.barbershopId)
+                ?: throw AuthFailure(404, "No encontramos la barbería de esta membresía")
+            MembershipResponse(membership.barbershopId, membership.role, membership.barberId, shop.slug, shop.name)
+        }
+    }
+
     @Transactional
     fun rename(userId: UUID, name: String) {
         store.lockUser(userId) ?: AuthFailure.unauthenticated()
