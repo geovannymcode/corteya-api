@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.jdbc.core.JdbcTemplate
@@ -35,6 +36,7 @@ import tools.jackson.databind.json.JsonMapper
 
 class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
     @Autowired private lateinit var jdbc: JdbcTemplate
+    @Autowired private lateinit var entityManagerFactory: jakarta.persistence.EntityManagerFactory
     @Autowired private lateinit var mapper: JsonMapper
     @Autowired private lateinit var clock: MutableTestClock
     @Autowired private lateinit var sender: RecordingOtpSender
@@ -446,6 +448,66 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         assertTrue(operation.path("security").first().path("bearerAuth").isArray)
         assertFalse(document.path("paths").path("/api/v1/auth/otp/verify").path("post").isMissingNode)
         assertFalse(document.path("paths").path("/api/v1/me").path("delete").isMissingNode)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [0, 1, 2])
+    fun `history loads legacy cancellation hours only once per shop and retains snapshots`(legacyShops: Int) {
+        val me = login("3001234567")
+        listOf("09:00", "10:00").forEach { time ->
+            assertEquals(201, book(me, time = time).statusCode())
+            assertEquals(201, book(me, slug = "shop-b", b = otherBarber, s = otherService, time = time).statusCode())
+        }
+        listOf(shop to 6, otherShop to 12).forEach { (id, hours) -> inShop(id) {
+            jdbc.update("update barbershop set cancel_hours = ?, active = ? where id = ?", hours, id == shop, id)
+            if (legacyShops == 2 || (legacyShops == 1 && id == otherShop)) {
+                jdbc.update("update appointment set cancel_hours_snapshot = null where barbershop_id = ?", id)
+            }
+        } }
+        val response = withShopPolicyQueries(legacyShops.toLong()) { send("GET", "/api/v1/me/appointments", token = me.access) }
+        assertEquals(200, response.statusCode(), response.body())
+        val appointments = body(response).path("upcoming")
+        assertEquals(4, appointments.size())
+        appointments.forEach { appointment ->
+            val isOtherShop = inShop(otherShop) { jdbc.queryForObject("select exists(select 1 from appointment where barbershop_id = ? and public_token = ?)",
+                Boolean::class.java, otherShop, appointment.path("publicToken").asString()) == true }
+            val hours = if (isOtherShop && legacyShops >= 1) 12L else if (!isOtherShop && legacyShops == 2) 6L else 24L
+            val startsAt = java.time.OffsetDateTime.parse(appointment.path("startsAt").asString())
+            assertEquals(startsAt.minusHours(hours), java.time.OffsetDateTime.parse(appointment.path("cancellableWithRefundUntil").asString()))
+            assertTrue(appointment.path("cancelPolicyText").asString().contains("al menos $hours horas"))
+        }
+    }
+
+    @Test
+    fun `staff agenda loads cancellation hours once for multiple legacy appointments`() {
+        val me = login("3001234567")
+        listOf("09:00", "10:00").forEach { assertEquals(201, book(me, time = it).statusCode()) }
+        inShop(shop) {
+            jdbc.update("update appointment set cancel_hours_snapshot = null where barbershop_id = ?", shop)
+            jdbc.update("update barbershop set cancel_hours = 6 where id = ?", shop)
+        }
+        val owner = staff("3002222222", "OWNER", null)
+        val response = withShopPolicyQueries(1) {
+            send("GET", "/api/v1/barbershops/shop-a/staff/agenda?date=2026-10-19", token = owner.access)
+        }
+        assertEquals(200, response.statusCode(), response.body())
+        assertEquals(2, body(response).size())
+        body(response).forEach { row ->
+            assertTrue(row.path("appointment").path("cancelPolicyText").asString().contains("al menos 6 horas"))
+        }
+    }
+
+    private fun <T> withShopPolicyQueries(expected: Long, operation: () -> T): T {
+        val statistics = entityManagerFactory.unwrap(org.hibernate.SessionFactory::class.java).statistics
+        val wasEnabled = statistics.isStatisticsEnabled
+        statistics.isStatisticsEnabled = true
+        val query = "select e from BarbershopEntity e where e.id = :barbershopId"
+        val before = statistics.getQueryStatistics(query).executionCount
+        try {
+            val result = operation()
+            assertEquals(expected, statistics.getQueryStatistics(query).executionCount - before)
+            return result
+        } finally { statistics.isStatisticsEnabled = wasEnabled }
     }
 
     @Test

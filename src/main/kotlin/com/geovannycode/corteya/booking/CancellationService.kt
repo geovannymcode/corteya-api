@@ -22,11 +22,16 @@ class CancellationService(
     private val shops: BarbershopService, private val tenants: TenantTransaction,
     private val clock: Clock, private val events: ApplicationEventPublisher,
 ) {
-    fun policy(appointment: AppointmentEntity): CancellationPolicy {
-        val hours = appointment.cancelHoursSnapshot ?: tenants.execute(appointment.barbershopId) {
-            (shops.findById(appointment.barbershopId) ?: BookingFailure.notFound()).cancelHours
+    fun policy(appointment: AppointmentEntity): CancellationPolicy = policies(listOf(appointment)).getValue(appointment.id)
+
+    fun policies(appointments: List<AppointmentEntity>): Map<UUID, CancellationPolicy> {
+        val legacyHours = appointments.filter { it.cancelHoursSnapshot == null }.map { it.barbershopId }.distinct().associateWith { shopId ->
+            tenants.execute(shopId) { (shops.findById(shopId) ?: BookingFailure.notFound()).cancelHours }
         }
-        return CancellationPolicy.forAppointment(appointment.startsAt, hours, appointment.depositCop > 0)
+        return appointments.associate { appointment ->
+            appointment.id to CancellationPolicy.forAppointment(appointment.startsAt,
+                appointment.cancelHoursSnapshot ?: legacyHours.getValue(appointment.barbershopId), appointment.depositCop > 0)
+        }
     }
 
     fun cancel(user: UUID, publicToken: String): CancellationResponse {
