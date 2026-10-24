@@ -25,10 +25,12 @@ data class CreateAppointmentRequest(
 data class CreatedAppointmentResponse(
     val publicToken: String, val status: AppointmentStatus, val depositCop: Long,
     val paymentReference: String, val holdExpiresAt: OffsetDateTime?, val paymentInstructions: PaymentInstructions?,
+    val cancellableWithRefundUntil: OffsetDateTime, val cancelPolicyText: String,
 )
 
 /** Public capability response deliberately omits customer data and internal UUIDs. */
 data class AppointmentStatusResponse(
     val publicToken: String, val status: AppointmentStatus, val startsAt: OffsetDateTime,
     val endsAt: OffsetDateTime, val depositCop: Long, val paymentReference: String, val holdExpiresAt: OffsetDateTime?,
+    val cancellableWithRefundUntil: OffsetDateTime, val cancelPolicyText: String,
 )

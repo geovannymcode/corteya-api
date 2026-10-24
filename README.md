@@ -1,4 +1,4 @@
-# CorteYa API — fases 1–4
+# CorteYa API — fases 1–4 y 8A
 
 Backend multi-barbería con PostgreSQL, disponibilidad, reservas autenticadas, OTP,
 JWT RS256, roles, RLS y señales por Bre-B manual o checkout Wompi. El catálogo y la disponibilidad son públicos.
@@ -558,6 +558,57 @@ cliente y confirma/rechaza como staff. Para recibir webhooks reales necesitas un
 HTTPS pública configurada en el panel del mismo ambiente Wompi. La suite automática
 simula ese proveedor con `MockRestServiceServer`; no mueve fondos ni usa llaves reales.
 
+## Cancelación del cliente y devolución manual (fase 8A)
+
+`POST /api/v1/appointments/{publicToken}/cancel` requiere el JWT del dueño de la cita.
+Otro cliente o staff que no sea su dueño recibe 404. Solo se aceptan citas
+PENDING_PAYMENT o CONFIRMED antes de `starts_at`; al inicio exacto, después del inicio
+o si ya fue cancelada/expirada/completada/no asistió, se devuelve 409.
+
+La operación bloquea primero la cita y después sus señales, dentro de una única
+`TenantTransaction` con filtros explícitos por barbería. Pasa la cita a CANCELLED y
+libera el horario. Las señales PENDING pasan a VOIDED. Si estaba CONFIRMED con señal
+aprobada, cancelar hasta `starts_at − cancel_hours` inclusive deja `refund_status=PENDING`;
+fuera de ese plazo queda FORFEITED. Una reserva en NONE se cancela sin señal ni devolución.
+La respuesta incluye `publicToken`, `status`, `refundStatus`, `refundAmountCop` y `message`:
+«Cancelaste a tiempo: la barbería te devolverá $12.000» o
+«Cancelaste con menos de 6 horas: la señal no es reembolsable».
+
+Crear y consultar la cita devuelve `cancellableWithRefundUntil` con offset de Bogotá y
+`cancelPolicyText`. El DTO compartido conserva esos campos también en historial y agenda.
+Cada cita nueva guarda `cancel_hours_snapshot` para aplicar la política informada al
+crearla. Las citas anteriores a V10, sin snapshot, usan la política de su barbería.
+El cálculo y las transiciones usan el Clock inyectado. La cancelación de una cita propia
+sigue funcionando si su barbería queda inactiva, con su contexto RLS.
+
+`POST /api/v1/barbershops/{slug}/staff/appointments/{id}/deposit/refunded` registra que el
+BARBER asignado o el OWNER ya devolvió manualmente el dinero. Solo convierte una devolución
+PENDING de una cita CANCELLED en DONE; repetir DONE no duplica el evento. No modifica una
+señal FORFEITED y no llama a APIs de reembolso ni transfiere fondos. El pago conserva su
+estado APPROVED y el staff queda en `confirmed_by_user_id`; el evento conserva el actor,
+la hora y los estados anterior/nuevo de la devolución. `GET .../staff/deposits` incluye
+`refundStatus` para poder identificar los pagos que requieren atención.
+
+V10 agrega `deposit_payment.refund_status` (NONE, PENDING, DONE, FORFEITED), el snapshot
+por cita y los campos de auditoría de devolución/actor en `deposit_event`; conserva
+ENABLE + FORCE RLS y no modifica V1–V9. Las transiciones de devolución se registran como
+eventos separados del estado del pago, sin nombres, teléfonos ni cuerpos del proveedor.
+
+Al cancelar se publica `AppointmentCancelled` dentro de la transacción, con IDs mínimos,
+refundStatus, monto a devolver e instante. La fase 5 podrá usar un
+`@TransactionalEventListener(AFTER_COMMIT)` para notificar. Un rollback no entrega ese
+evento después del commit. Esta fase no implementa notificaciones.
+
+Si Wompi aprueba después de cancelar una pendiente, se conserva CANCELLED, se registra
+APPROVED y se deja la devolución PENDING, de forma idempotente. La cita no recupera el
+horario ni descarta el pago recibido.
+
+Para probar en Swagger: crea una cita con un cliente; revisa los campos de política;
+confirma su señal como staff si quieres probar devolución; cancela con la sesión del
+cliente. Consulta las señales APPROVED como staff y usa `/deposit/refunded` después de
+hacer la devolución real. La suite automatizada verifica ambos lados del plazo, su
+límite exacto, aislamiento, repetición, rollback y eventos tras commit.
+
 ## Pruebas
 
 Con Docker en ejecución, sin levantar Compose ni exportar `.env`:
@@ -591,7 +642,7 @@ Informe: `build/reports/tests/test/index.html`. JAR ejecutable: `build/libs/cort
 
 - Reembolsos automáticos y notificaciones/recordatorios (fase 5); un `LATE_PAYMENT` requiere devolución manual o reagendamiento por el barbero.
 - ShedLock si se despliegan varias instancias.
-- Cancelación, asistencia, notificaciones y recordatorios.
+- Reprogramación, asistencia, notificaciones y recordatorios.
 - Panel admin Vaadin, app Flutter y entrada por QR/link.
 - Fase 10 (despliegue): configurar `forward-headers-strategy=native` +
   `server.tomcat.remoteip.internal-proxies` con el rango del proxy del proveedor;

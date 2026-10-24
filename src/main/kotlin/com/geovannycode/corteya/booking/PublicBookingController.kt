@@ -49,6 +49,7 @@ class PublicBookingController(
     private val queries: BookingQueries,
     private val policy: AuthorizationPolicy,
     private val paymentSettings: PaymentSettingsService,
+    private val cancellations: CancellationService,
 ) {
     @GetMapping("/barbershops/{slug}")
     @Operation(summary = "Identidad y estado de apertura de la barbería")
@@ -93,7 +94,8 @@ class PublicBookingController(
         val result = created.appointment
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(
             CreatedAppointmentResponse(result.publicToken, result.status, result.depositCop, result.paymentReference,
-                result.holdExpiresAt?.bogota(), created.paymentInstructions),
+                result.holdExpiresAt?.bogota(), created.paymentInstructions,
+                created.cancellationPolicy.cancellableWithRefundUntil.bogota(), created.cancellationPolicy.cancelPolicyText),
         )
     }
 
@@ -103,9 +105,11 @@ class PublicBookingController(
     fun appointment(@PathVariable publicToken: String, @AuthenticationPrincipal jwt: Jwt): ResponseEntity<AppointmentStatusResponse> {
         if (!publicToken.matches(Regex("[0-9a-f]{32}"))) BookingFailure.notFound()
         val result = queries.appointment(UUID.fromString(jwt.subject), publicToken)
+        val cancellationPolicy = cancellations.policy(result)
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
             AppointmentStatusResponse(result.publicToken, result.status, result.startsAt.bogota(), result.endsAt.bogota(),
-                result.depositCop, result.paymentReference, result.holdExpiresAt?.bogota()),
+                result.depositCop, result.paymentReference, result.holdExpiresAt?.bogota(),
+                cancellationPolicy.cancellableWithRefundUntil.bogota(), cancellationPolicy.cancelPolicyText),
         )
     }
 

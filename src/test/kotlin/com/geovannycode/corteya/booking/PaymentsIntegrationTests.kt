@@ -44,6 +44,9 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     @Autowired private lateinit var tokens: AccessTokens
     @Autowired private lateinit var settings: PaymentSettingsService
     @Autowired private lateinit var job: HoldExpirationJob
+    @Autowired private lateinit var cancellations: CancellationService
+    @Autowired private lateinit var tenants: com.geovannycode.corteya.shared.TenantTransaction
+    @Autowired private lateinit var cancelledEvents: CancellationEventRecorder
     @Autowired @Qualifier("wompiRestClientBuilder") private lateinit var wompi: RestClient.Builder
     private lateinit var provider: MockRestServiceServer
     private val client = HttpClient.newHttpClient()
@@ -61,7 +64,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     private val now = Instant.parse("2026-10-19T13:00:00Z")
 
     override fun customize(builder: SpringApplicationBuilder): SpringApplicationBuilder =
-        builder.sources(FixedBookingTestConfiguration::class.java).initializers({ context ->
+        builder.sources(FixedBookingTestConfiguration::class.java, CancellationEventTestConfiguration::class.java).initializers({ context ->
             context.environment.propertySources.addFirst(MapPropertySource("payment-test", mapOf(
                 "payments.secrets.key" to java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 7 }),
                 // These must be ignored in this non-dev profile.
@@ -73,6 +76,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     fun fixtures() {
         resetData(listOf(shop, otherShop))
         clock.set(now)
+        cancelledEvents.events.clear()
         provider = MockRestServiceServer.bindTo(wompi).build()
         customer = user("3000000100")
         owner = user("3000000101")
@@ -497,6 +501,228 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(413, http("POST", "/api/v1/webhooks/wompi/opaque", null, " ".repeat(65537)).statusCode())
     }
 
+    @Test
+    fun `customer cancellation voids pending payment releases the slot and publishes a committed event`() {
+        breb()
+        val created = create()
+        val id = appointmentId(created)
+        val response = cancel(created)
+        assertEquals(200, response.statusCode(), response.body())
+        assertEquals("CANCELLED", appointmentStatus(id))
+        assertEquals("VOIDED", depositStatus(id))
+        assertEquals("NONE", mapper.readTree(response.body()).path("refundStatus").asString())
+        assertEquals(1, cancelledEvents.events.size)
+        assertEquals(id, cancelledEvents.events.single().appointmentId)
+        assertEquals(shop, cancelledEvents.events.single().barbershopId)
+        assertEquals(now, cancelledEvents.events.single().cancelledAt)
+        assertEquals("PENDING_PAYMENT", create().path("status").asString())
+    }
+
+    @Test
+    fun `confirmed cancellation at the exact policy deadline leaves a pending refund with a clear COP message`() {
+        breb()
+        cancelHours(6)
+        val created = create("2026-10-19T14:00:00-05:00")
+        val id = appointmentId(created)
+        approve(id)
+        val response = cancel(created)
+        assertEquals(200, response.statusCode(), response.body())
+        val result = mapper.readTree(response.body())
+        assertEquals("PENDING", result.path("refundStatus").asString())
+        assertEquals(12000L, result.path("refundAmountCop").asLong())
+        assertEquals("Cancelaste a tiempo: la barbería te devolverá $12.000", result.path("message").asString())
+        assertEquals("PENDING", refundStatus(id))
+        assertEquals("APPROVED", depositStatus(id))
+        assertEquals(RefundStatus.PENDING, cancelledEvents.events.single().refundStatus)
+        assertEquals(12000L, cancelledEvents.events.single().refundAmountCop)
+    }
+
+    @Test
+    fun `confirmed cancellation after the deadline forfeits the deposit and still frees the slot`() {
+        breb()
+        cancelHours(6)
+        val created = create("2026-10-19T14:00:00-05:00")
+        val id = appointmentId(created)
+        approve(id)
+        clock.set(now.plusSeconds(1))
+        val response = cancel(created)
+        assertEquals(200, response.statusCode())
+        assertEquals("FORFEITED", refundStatus(id))
+        assertEquals("CANCELLED", appointmentStatus(id))
+        assertEquals("Cancelaste con menos de 6 horas: la señal no es reembolsable", mapper.readTree(response.body()).path("message").asString())
+        assertEquals(409, refunded(id, staff).statusCode())
+        assertEquals("PENDING_PAYMENT", create("2026-10-19T14:00:00-05:00").path("status").asString())
+    }
+
+    @Test
+    fun `NONE cancels without a deposit or refund`() {
+        inShop(shop) { settings.configure(shop, PaymentSettingsRequest(DepositMode.NONE)) }
+        val created = create()
+        assertEquals(200, cancel(created).statusCode())
+        assertEquals("CANCELLED", appointmentStatus(appointmentId(created)))
+        inShop(shop) { assertEquals(0, jdbc.queryForObject("select count(*) from deposit_payment where barbershop_id = ?", Int::class.java, shop)) }
+        assertEquals(RefundStatus.NONE, cancelledEvents.events.single().refundStatus)
+        assertEquals(0L, cancelledEvents.events.single().refundAmountCop)
+    }
+
+    @Test
+    fun `only the owning customer may cancel even if another user is staff`() {
+        breb()
+        val created = create()
+        val stranger = user("3000000104")
+        listOf(stranger, owner, staff).forEach { assertEquals(404, cancel(created, it).statusCode()) }
+        assertEquals(401, http("POST", cancelPath(created), null).statusCode())
+        assertEquals("PENDING_PAYMENT", appointmentStatus(appointmentId(created)))
+        assertTrue(cancelledEvents.events.isEmpty())
+    }
+
+    @Test
+    fun `an appointment cannot be cancelled twice`() {
+        breb()
+        val created = create()
+        assertEquals(200, cancel(created).statusCode())
+        assertEquals(409, cancel(created).statusCode())
+        assertEquals(1, cancelledEvents.events.size)
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    fun `pending and confirmed appointments cannot be cancelled at their exact start`(confirmed: Boolean) {
+        breb()
+        val created = create()
+        val id = appointmentId(created)
+        if (confirmed) approve(id)
+        clock.set(Instant.parse("2026-10-19T15:00:00Z"))
+        assertEquals(409, cancel(created).statusCode())
+        assertEquals(if (confirmed) "CONFIRMED" else "PENDING_PAYMENT", appointmentStatus(id))
+        assertTrue(cancelledEvents.events.isEmpty())
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["EXPIRED", "COMPLETED", "NO_SHOW"])
+    fun `other appointment states reject cancellation`(status: String) {
+        breb()
+        val created = create()
+        val id = appointmentId(created)
+        inShop(shop) { jdbc.update("update appointment set status = ? where barbershop_id = ? and id = ?", status, shop, id) }
+        assertEquals(409, cancel(created).statusCode())
+        assertEquals(status, appointmentStatus(id))
+        assertTrue(cancelledEvents.events.isEmpty())
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    fun `assigned BARBER or OWNER records a refund once with actor and audit history`(asOwner: Boolean) {
+        breb()
+        cancelHours(6)
+        val created = create("2026-10-19T14:00:00-05:00")
+        val id = appointmentId(created)
+        approve(id)
+        assertEquals(200, cancel(created).statusCode())
+        val actor = if (asOwner) owner else staff
+        assertEquals(204, refunded(id, actor).statusCode())
+        assertEquals(204, refunded(id, actor).statusCode())
+        assertEquals("DONE", refundStatus(id))
+        inShop(shop) {
+            assertEquals(actor.id, jdbc.queryForObject("select confirmed_by_user_id from deposit_payment where barbershop_id = ? and appointment_id = ?", UUID::class.java, shop, id))
+            val event = jdbc.queryForMap("select from_refund_status, to_refund_status, confirmed_by_user_id from deposit_event where barbershop_id = ? and to_refund_status = 'DONE'", shop)
+            assertEquals("PENDING", event["from_refund_status"])
+            assertEquals("DONE", event["to_refund_status"])
+            assertEquals(actor.id, event["confirmed_by_user_id"])
+        }
+    }
+
+    @Test
+    fun `refund confirmation rejects another barber and another tenant and remains protected by RLS`() {
+        breb()
+        cancelHours(6)
+        val created = create("2026-10-19T14:00:00-05:00")
+        val id = appointmentId(created)
+        approve(id)
+        assertEquals(200, cancel(created).statusCode())
+        assertEquals(404, refunded(id, wrongStaff).statusCode())
+        membership(wrongStaff, otherShop, "OWNER")
+        assertEquals(404, http("POST", "/api/v1/barbershops/pay-b/staff/appointments/$id/deposit/refunded", wrongStaff).statusCode())
+        assertEquals(404, refunded(id, customer).statusCode())
+        assertEquals(0, jdbc.queryForObject("select count(*) from deposit_payment where refund_status = 'PENDING'", Int::class.java))
+        assertEquals(0, inShop(otherShop) { jdbc.update("update deposit_payment set refund_status = 'DONE' where barbershop_id = ? and appointment_id = ?", shop, id) })
+        assertEquals("PENDING", refundStatus(id))
+    }
+
+    @Test
+    fun `creation and polling publish the same cancellation policy with a Bogota offset`() {
+        breb()
+        cancelHours(6)
+        val created = create("2026-10-19T14:00:00-05:00")
+        assertEquals("2026-10-19T08:00:00-05:00", created.path("cancellableWithRefundUntil").asString())
+        assertTrue(created.path("cancelPolicyText").asString().contains("6 horas"))
+        val response = http("GET", "/api/v1/appointments/${created.path("publicToken").asString()}", customer)
+        assertEquals(200, response.statusCode())
+        val polled = mapper.readTree(response.body())
+        assertEquals(created.path("cancellableWithRefundUntil"), polled.path("cancellableWithRefundUntil"))
+        assertEquals(created.path("cancelPolicyText"), polled.path("cancelPolicyText"))
+    }
+
+    @Test
+    fun `cancellation applies the policy shown at creation after the shop changes its deadline`() {
+        breb()
+        cancelHours(6)
+        val created = create("2026-10-19T14:00:00-05:00")
+        val id = appointmentId(created)
+        approve(id)
+        cancelHours(24)
+        val polled = mapper.readTree(http("GET", "/api/v1/appointments/${created.path("publicToken").asString()}", customer).body())
+        assertEquals(created.path("cancellableWithRefundUntil"), polled.path("cancellableWithRefundUntil"))
+        assertEquals(created.path("cancelPolicyText"), polled.path("cancelPolicyText"))
+        assertEquals(200, cancel(created).statusCode())
+        assertEquals("PENDING", refundStatus(id))
+    }
+
+    @Test
+    fun `Wompi approved after pending cancellation keeps the appointment cancelled and records a pending refund idempotently`() {
+        configureWompi()
+        val created = create()
+        val id = appointmentId(created)
+        assertEquals(200, cancel(created).statusCode())
+        assertEquals("VOIDED", depositStatus(id))
+        assertEquals(200, webhook(created).statusCode())
+        assertEquals(200, webhook(created).statusCode())
+        assertEquals("CANCELLED", appointmentStatus(id))
+        assertEquals("APPROVED", depositStatus(id))
+        assertEquals("PENDING", refundStatus(id))
+        inShop(shop) { assertEquals(1, jdbc.queryForObject("select count(*) from deposit_event where barbershop_id = ? and to_refund_status = 'PENDING'", Int::class.java, shop)) }
+    }
+
+    @Test
+    fun `cancelled customer appointment in an inactive shop still follows RLS`() {
+        breb()
+        val created = create()
+        inShop(shop) { jdbc.update("update barbershop set active = false where id = ?", shop) }
+        assertEquals(200, cancel(created).statusCode())
+        assertEquals("CANCELLED", appointmentStatus(appointmentId(created)))
+    }
+
+    @Test
+    fun `rollback restores appointment and payment and does not deliver AppointmentCancelled after commit`() {
+        breb()
+        val created = create()
+        val id = appointmentId(created)
+        assertFailsWith<IllegalStateException> { tenants.execute(shop) {
+            cancellations.cancel(customer.id, created.path("publicToken").asString())
+            error("Synthetic rollback")
+        } }
+        assertEquals("PENDING_PAYMENT", appointmentStatus(id))
+        assertEquals("PENDING", depositStatus(id))
+        assertTrue(cancelledEvents.events.isEmpty())
+    }
+
+    private fun cancelHours(hours: Int) = inShop(shop) { jdbc.update("update barbershop set cancel_hours = ? where id = ?", hours, shop) }
+    private fun cancelPath(created: JsonNode) = "/api/v1/appointments/${created.path("publicToken").asString()}/cancel"
+    private fun cancel(created: JsonNode, actor: AppUser = customer) = http("POST", cancelPath(created), actor)
+    private fun approve(id: UUID) { assertEquals(204, http("POST", "/api/v1/barbershops/pay-a/staff/appointments/$id/deposit/confirm", staff).statusCode()) }
+    private fun refunded(id: UUID, actor: AppUser) = http("POST", "/api/v1/barbershops/pay-a/staff/appointments/$id/deposit/refunded", actor)
+    private fun refundStatus(id: UUID): String = inShop(shop) { checkNotNull(jdbc.queryForObject("select refund_status from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1", String::class.java, shop, id)) }
+
     private fun breb() { inShop(shop) { settings.configure(shop, PaymentSettingsRequest(DepositMode.BREB_MANUAL, BrebKeyType.ALIAS, "@TEST", "Titular")) } }
     private fun wompiRequest() = PaymentSettingsRequest(DepositMode.WOMPI, wompiEnvironment = WompiEnvironment.SANDBOX,
         wompiPublicKey = "pub_test_Public", wompiPrivateKey = "prv_test_Private", wompiIntegritySecret = "test_integrity_Integrity", wompiEventsSecret = "test_events_Events")
@@ -505,9 +731,9 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
     private fun membership(user: AppUser, tenant: UUID, role: String, barberId: UUID? = null) {
         jdbc.update("insert into staff_membership (id, user_id, barbershop_id, role, barber_id) values (?, ?, ?, ?, ?)", UUID.randomUUID(), user.id, tenant, role, barberId)
     }
-    private fun create(): JsonNode {
+    private fun create(startsAt: String = "2026-10-19T10:00:00-05:00"): JsonNode {
         val response = http("POST", "/api/v1/barbershops/pay-a/appointments", customer,
-            mapOf("barberId" to barber, "serviceId" to service, "startsAt" to "2026-10-19T10:00:00-05:00"))
+            mapOf("barberId" to barber, "serviceId" to service, "startsAt" to startsAt))
         assertEquals(201, response.statusCode(), response.body())
         return mapper.readTree(response.body())
     }

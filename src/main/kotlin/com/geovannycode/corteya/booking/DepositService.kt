@@ -63,5 +63,5 @@ class DepositService(
 
     private fun gateway(mode: DepositMode): PaymentGateway = gateways.single { it.mode == mode }
     private fun response(p: DepositPayment) = DepositResponse(p.id, p.appointmentId, p.method, p.amountCop, p.reference, p.status,
-        p.confirmedAt?.atZone(ZoneId.of("America/Bogota"))?.toOffsetDateTime())
+        p.confirmedAt?.atZone(ZoneId.of("America/Bogota"))?.toOffsetDateTime(), p.refundStatus)
 }
