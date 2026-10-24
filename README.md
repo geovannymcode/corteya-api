@@ -575,7 +575,7 @@ La respuesta incluye `publicToken`, `status`, `refundStatus`, `refundAmountCop` 
 «Cancelaste con menos de 6 horas: la señal no es reembolsable».
 
 Crear y consultar la cita devuelve `cancellableWithRefundUntil` con offset de Bogotá y
-`cancelPolicyText`. El DTO compartido conserva esos campos también en historial y agenda.
+`cancelPolicyText`. El historial y la agenda conservan también esos campos.
 Cada cita nueva guarda `cancel_hours_snapshot` para aplicar la política informada al
 crearla. Las citas anteriores a V10, sin snapshot, usan la política de su barbería.
 El cálculo y las transiciones usan el Clock inyectado. La cancelación de una cita propia
@@ -608,6 +608,60 @@ confirma su señal como staff si quieres probar devolución; cancela con la sesi
 cliente. Consulta las señales APPROVED como staff y usa `/deposit/refunded` después de
 hacer la devolución real. La suite automatizada verifica ambos lados del plazo, su
 límite exacto, aislamiento, repetición, rollback y eventos tras commit.
+
+## Contrato de reserva y Mis citas (fase 8B)
+
+`GET /api/v1/barbershops/{slug}` devuelve también `bookingWindowDays`, `address` y
+`city` (ubicación nullable si no se ha configurado). No expone el UUID de la barbería.
+La demo dev tiene una dirección ficticia y ciudad Bogotá; reemplaza la dirección antes
+de publicarla. V11 agrega esas columnas y el snapshot de instrucciones Bre-B de cada señal.
+
+`GET /api/v1/barbershops/{slug}/booking-quote?serviceId=UUID&barberId=UUID&startsAt=2026-10-19T10:00:00-05:00`
+requiere JWT con rol CUSTOMER. Devuelve `priceCop`, `depositMode`, `depositCop`,
+`payAtShopCop`, `holdMinutes`, `cancellableWithRefundUntil` y `cancelPolicyText`.
+La cotización y la creación comparten `BookingTerms`, el redondeo de la señal hacia arriba
+al múltiplo de COP 1.000 y la política de cancelación. Por ejemplo, $38.000 al 30 %
+produce $12.000 de señal y $26.000 por pagar en la barbería. NONE devuelve señal y hold
+en cero. El endpoint valida la asignación barbero/servicio y el hueco con el mismo
+generador que la creación. Un hueco no válido/tomado devuelve 409; IDs de otra barbería,
+404. No escribe datos ni retiene el hueco: crear la cita vuelve a validar disponibilidad
+y puede responder 409 si alguien lo tomó después de cotizar.
+
+El detalle autenticado `GET /api/v1/appointments/{publicToken}` agrega `deposit`
+(null en NONE): `method`, `status`, `amountCop`, `reference`, `latestAttemptStatus`,
+`canRetry`, `holdExpiresAt`, `refundStatus` y `paymentInstructions`. El pago aprobado
+conserva prioridad frente a intentos posteriores fallidos, para mostrar su devolución;
+`latestAttemptStatus` siempre corresponde al intento más reciente. `canRetry` usa la
+misma regla que `POST /api/v1/appointments/{publicToken}/payment-attempts`: solo Wompi,
+último intento DECLINED/ERROR, cita pendiente, hold estrictamente vigente y configuración
+actual Wompi. Las instrucciones Bre-B se incluyen solo mientras se puede retomar el pago
+pendiente; usan la llave/titular guardados al crear la señal. Para señales previas a V11,
+sin snapshot, se usa la configuración Bre-B actual si existe. No se devuelven secretos
+Wompi. Un cliente ajeno recibe 404 aunque conozca el token.
+
+`GET /api/v1/me/appointments` conserva `upcoming` y `past`, ordenados por fecha de fin
+para su clasificación (futuras en orden de inicio ascendente, pasadas descendente).
+Cada cita incluye `publicToken`, `serviceName`, `barberName`, `barbershopName`,
+`barbershopSlug`, `barbershopLogoUrl`, `startsAt`, `endsAt`, `priceCop`, `depositCop`,
+`status`, `depositStatus` (null en NONE), `refundStatus`, `cancellable`,
+`cancellableWithRefundUntil`, `cancelPolicyText`, `paymentReference` y `holdExpiresAt`.
+`cancellable` indica estado pendiente/confirmado y hora de inicio futura; se vuelve a
+comprobar en la cancelación. Se consultan nombres actuales del catálogo, incluso si el
+barbero o servicio está inactivo; la política respeta el snapshot de la cita.
+
+El historial recorre solo el directorio de identidad del usuario, incluidas barberías
+inactivas, con `TenantTransaction`, filtros SQL explícitos y RLS. Carga citas, catálogo,
+identidad de la barbería y señales en lotes por barbería, sin consultas por cita.
+Las respuestas de quote, detalle e historial llevan `Cache-Control: no-store`.
+Todos los instantes se representan con offset de Bogotá y los montos como COP enteros.
+El contrato generado se consulta en `/v3/api-docs` y Swagger UI.
+
+Para probar manualmente, inicia sesión, obtén un servicio y barbero del catálogo,
+cotiza un hueco disponible, crea la cita con esos mismos datos y compara la señal y la
+política. Luego consulta el detalle y `/api/v1/me/appointments` con el mismo JWT.
+Las pruebas automatizadas cubren los tres modos, cotización sin escrituras, huecos
+inválidos, reintentos y sus bordes de vigencia, devoluciones y lectura entre barberías
+activas/inactivas, además del contrato OpenAPI y consultas de catálogo por barbería.
 
 ## Pruebas
 
