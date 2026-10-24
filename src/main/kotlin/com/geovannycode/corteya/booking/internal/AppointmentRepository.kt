@@ -49,14 +49,14 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
         jdbc.query(
             """insert into appointment (id, barbershop_id, barber_id, service_id, customer_id,
                 starts_at, ends_at, status, price_cop, deposit_cop, payment_reference,
-                public_token, hold_expires_at, source, version, created_at, updated_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                public_token, hold_expires_at, source, version, created_at, updated_at, cancel_hours_snapshot)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
                 on conflict on constraint uq_appointment_shop_reference do nothing returning id""",
             { row, _ -> row.getObject("id", UUID::class.java) },
             a.id, a.barbershopId, a.barberId, a.serviceId, a.customerId,
             Timestamp.from(a.startsAt), Timestamp.from(a.endsAt), a.status.name,
             a.priceCop, a.depositCop, a.paymentReference, a.publicToken,
-            a.holdExpiresAt?.let(Timestamp::from), a.source.name, Timestamp.from(a.createdAt), Timestamp.from(a.updatedAt),
+            a.holdExpiresAt?.let(Timestamp::from), a.source.name, Timestamp.from(a.createdAt), Timestamp.from(a.updatedAt), a.cancelHoursSnapshot,
         ).isNotEmpty()
     }
 
@@ -95,5 +95,6 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
         publicToken = getString("public_token"), holdExpiresAt = getTimestamp("hold_expires_at")?.toInstant(),
         source = AppointmentSource.valueOf(getString("source")), version = getLong("version"),
         createdAt = getTimestamp("created_at").toInstant(), updatedAt = getTimestamp("updated_at").toInstant(),
+        cancelHoursSnapshot = getObject("cancel_hours_snapshot", Int::class.javaObjectType),
     )
 }

@@ -74,4 +74,7 @@ data class AppointmentEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
+
+    @field:Column(name = "cancel_hours_snapshot")
+    val cancelHoursSnapshot: Int? = null,
 )

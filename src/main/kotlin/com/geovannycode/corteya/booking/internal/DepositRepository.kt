@@ -30,6 +30,10 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
         "select * from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1",
         { r, _ -> r.payment() }, shop, appointment).singleOrNull()
 
+    fun forAppointment(shop: UUID, appointment: UUID): List<DepositPayment> = jdbc.query(
+        "select * from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt for update",
+        { r, _ -> r.payment() }, shop, appointment)
+
     fun byReference(shop: UUID, reference: String): DepositPayment? = jdbc.query(
         "select * from deposit_payment where barbershop_id = ? and reference = ?", { r, _ -> r.payment() }, shop, reference).singleOrNull()
 
@@ -48,7 +52,15 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
             confirmed_by_user_id = coalesce(?, confirmed_by_user_id), confirmed_at = coalesce(?, confirmed_at)
             where barbershop_id = ? and id = ?""", status.name, transactionId, user,
             if (status in listOf(DepositStatus.APPROVED, DepositStatus.LATE_PAYMENT)) Timestamp.from(now) else null, p.barbershopId, p.id)
-        event(p, p.status, status, source, providerStatus, now)
+        event(p, p.status, status, source, providerStatus, now, user = user)
+    }
+
+    fun refund(payment: DepositPayment, status: RefundStatus, source: DepositEventSource, now: Instant, user: UUID? = null) {
+        if (payment.refundStatus == status) return
+        jdbc.update("""update deposit_payment set refund_status = ?, confirmed_by_user_id = coalesce(?, confirmed_by_user_id)
+            where barbershop_id = ? and id = ?""", status.name, user, payment.barbershopId, payment.id)
+        event(payment, payment.status, payment.status, source, null, now,
+            user = user, fromRefund = payment.refundStatus, toRefund = status)
     }
 
     fun discrepancy(payment: DepositPayment, reason: DepositDiscrepancyReason, now: Instant) {
@@ -64,14 +76,15 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
     }
 
     private fun event(p: DepositPayment, from: DepositStatus?, to: DepositStatus, source: DepositEventSource,
-        providerStatus: String?, now: Instant, reason: DepositDiscrepancyReason? = null) {
-        jdbc.update("""insert into deposit_event (id, barbershop_id, deposit_payment_id, from_status, to_status, source, provider_status, created_at, updated_at, reason)
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", UUID.randomUUID(), p.barbershopId, p.id, from?.name, to.name, source.name,
-            providerStatus, Timestamp.from(now), Timestamp.from(now), reason?.name)
+        providerStatus: String?, now: Instant, reason: DepositDiscrepancyReason? = null, user: UUID? = null,
+        fromRefund: RefundStatus? = null, toRefund: RefundStatus? = null) {
+        jdbc.update("""insert into deposit_event (id, barbershop_id, deposit_payment_id, from_status, to_status, source, provider_status, created_at, updated_at, reason, confirmed_by_user_id, from_refund_status, to_refund_status)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", UUID.randomUUID(), p.barbershopId, p.id, from?.name, to.name, source.name,
+            providerStatus, Timestamp.from(now), Timestamp.from(now), reason?.name, user, fromRefund?.name, toRefund?.name)
     }
 
     private fun ResultSet.payment() = DepositPayment(getObject("id", UUID::class.java), getObject("barbershop_id", UUID::class.java),
         getObject("appointment_id", UUID::class.java), DepositMode.valueOf(getString("method")), getLong("amount_cop"),
         getString("reference"), getInt("attempt"), DepositStatus.valueOf(getString("status")), getString("provider_transaction_id"),
-        getTimestamp("confirmed_at")?.toInstant())
+        getTimestamp("confirmed_at")?.toInstant(), RefundStatus.valueOf(getString("refund_status")))
 }
