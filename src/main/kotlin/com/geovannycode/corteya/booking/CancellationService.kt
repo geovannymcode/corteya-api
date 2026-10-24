@@ -41,7 +41,7 @@ class CancellationService(
             val a = bookings.lock(visible.barbershopId, visible.id) ?: BookingFailure.notFound()
             policy.appointmentCustomer(user, a.barbershopId, a.customerId)
             val now = clock.instant()
-            if (a.status !in listOf(AppointmentStatus.PENDING_PAYMENT, AppointmentStatus.CONFIRMED) || !now.isBefore(a.startsAt)) {
+            if (!CancellationPolicy.canCancel(a.status, a.startsAt, now)) {
                 throw ApiFailure(409, "Esta cita ya empezó o su estado no permite cancelarla")
             }
             val cancellation = policy(a)

@@ -7,7 +7,6 @@ import com.geovannycode.corteya.customer.CustomerService
 import com.geovannycode.corteya.identity.AuthorizationPolicy
 import java.time.Clock
 import java.time.Instant
-import java.time.ZoneId
 import java.util.UUID
 import org.springframework.stereotype.Service
 
@@ -44,8 +43,8 @@ class CreateAppointment(
         val payment = paymentSettings.requireConfigured(shop.id)
         bookings.expireForBarber(shop.id, barber.id, now)
         depositRepository.expirePending(shop.id, now)
-        val date = command.startsAt.atZone(ZoneId.of(shop.timezone)).toLocalDate()
-        if (command.startsAt !in availability.slots(selection, date, now).all()) BookingFailure.slotTaken()
+        availability.requireSlot(selection, command.startsAt, now)
+        val terms = BookingTerms.calculate(service.priceCop, payment.mode, shop.depositPercent, payment.holdMinutes, command.startsAt, shop.cancelHours)
 
         // The upsert locks this tenant + phone until commit, serializing the pending count.
         val customerId = customers.upsertAndLockCustomer(shop.id, phone, name, customer.id, now)
@@ -55,17 +54,16 @@ class CreateAppointment(
         val candidate = AppointmentEntity(
             barbershopId = shop.id, barberId = barber.id, serviceId = service.id, customerId = customerId,
             startsAt = command.startsAt, endsAt = command.startsAt.plusSeconds(service.durationMinutes.toLong() * 60),
-            priceCop = service.priceCop, depositCop = if (payment.mode == DepositMode.NONE) 0 else BookingCodes.depositCop(service.priceCop, shop.depositPercent),
+            priceCop = terms.priceCop, depositCop = terms.depositCop,
             status = if (payment.mode == DepositMode.NONE) AppointmentStatus.CONFIRMED else AppointmentStatus.PENDING_PAYMENT,
-            paymentReference = "", holdExpiresAt = if (payment.mode == DepositMode.NONE) null else now.plusSeconds(payment.holdMinutes.toLong() * 60),
+            paymentReference = "", holdExpiresAt = if (payment.mode == DepositMode.NONE) null else now.plusSeconds(terms.holdMinutes.toLong() * 60),
             createdAt = now, updatedAt = now, cancelHoursSnapshot = shop.cancelHours,
         )
         repeat(32) {
             val appointment = candidate.copy(paymentReference = codes.next())
-            if (appointment.depositCop > Long.MAX_VALUE / 100) throw BookingFailure(400, "El monto supera el máximo permitido")
             if (bookings.insert(appointment)) {
                 return CreatedBooking(appointment, deposits.initialize(appointment, payment),
-                    CancellationPolicy.forAppointment(appointment.startsAt, shop.cancelHours, appointment.depositCop > 0))
+                    terms.cancellationPolicy)
             }
         }
         throw BookingFailure(409, "No pudimos asignar una referencia a tu reserva, intenta de nuevo")

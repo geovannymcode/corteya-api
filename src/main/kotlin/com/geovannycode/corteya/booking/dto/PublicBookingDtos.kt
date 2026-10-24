@@ -9,6 +9,7 @@ import java.util.UUID
 data class BarbershopResponse(
     val slug: String, val name: String, val logoUrl: String?, val primaryColor: String, val secondaryColor: String,
     val open: Boolean, val statusMessage: String, val nextChangeAt: OffsetDateTime?, val bookingEnabled: Boolean,
+    val bookingWindowDays: Int, val address: String?, val city: String?,
 )
 
 data class ServiceResponse(val id: UUID, val name: String, val description: String?, val durationMinutes: Int, val priceCop: Long)
