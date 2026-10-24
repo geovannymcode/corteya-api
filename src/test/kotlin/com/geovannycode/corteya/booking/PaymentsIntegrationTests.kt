@@ -716,6 +716,220 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         assertTrue(cancelledEvents.events.isEmpty())
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(DepositMode::class)
+    fun `quote and creation share amounts and policy without writing or holding anything`(mode: DepositMode) {
+        when (mode) {
+            DepositMode.NONE -> inShop(shop) { settings.configure(shop, PaymentSettingsRequest(mode)) }
+            DepositMode.BREB_MANUAL -> breb()
+            DepositMode.WOMPI -> configureWompi()
+        }
+        cancelHours(6)
+        val before = businessCounts()
+        val response = quote()
+        assertEquals(200, response.statusCode(), response.body())
+        assertEquals("no-store", response.headers().firstValue("Cache-Control").orElse(""))
+        assertEquals(before, businessCounts(), "Quote must not create customers, appointments, deposits or events")
+        val quoted = mapper.readTree(response.body())
+        assertEquals(38000L, quoted.path("priceCop").asLong())
+        assertEquals(mode.name, quoted.path("depositMode").asString())
+        val deposit = if (mode == DepositMode.NONE) 0L else 12000L
+        assertEquals(deposit, quoted.path("depositCop").asLong())
+        assertEquals(38000L - deposit, quoted.path("payAtShopCop").asLong())
+        assertEquals(if (mode == DepositMode.NONE) 0 else if (mode == DepositMode.BREB_MANUAL) 30 else 15,
+            quoted.path("holdMinutes").asInt())
+        val created = create()
+        listOf("depositCop", "cancellableWithRefundUntil", "cancelPolicyText").forEach { field ->
+            assertEquals(quoted.path(field), created.path(field), field)
+        }
+        val storedPrice = inShop(shop) { jdbc.queryForObject("select price_cop from appointment where barbershop_id = ?", Long::class.java, shop) }
+        assertEquals(quoted.path("priceCop").asLong(), storedPrice)
+        assertEquals("2026-10-19T04:00:00-05:00", quoted.path("cancellableWithRefundUntil").asString())
+    }
+
+    @Test
+    fun `quote rejects occupied misaligned past and out of window slots without changing data`() {
+        breb()
+        create()
+        val before = businessCounts()
+        listOf("2026-10-19T10:00:00-05:00", "2026-10-19T11:07:00-05:00", "2026-10-19T08:00:00-05:00",
+            "2026-11-02T10:00:00-05:00").forEach { startsAt ->
+            val response = quote(startsAt)
+            assertEquals(409, response.statusCode(), response.body())
+        }
+        assertEquals(before, businessCounts())
+    }
+
+    @Test
+    fun `quote requires a customer session and hides barber and service from another tenant`() {
+        breb()
+        assertEquals(401, http("GET", quotePath(), null).statusCode())
+        assertEquals(404, http("GET", quotePath(b = otherBarber), customer).statusCode())
+        assertEquals(404, http("GET", quotePath(s = otherService), customer).statusCode())
+    }
+
+    @Test
+    fun `public shop includes booking window and location but never tenant identifiers`() {
+        inShop(shop) { jdbc.update("update barbershop set address = 'Calle 10 # 20-30', city = 'Bogotá', booking_window_days = 21 where id = ?", shop) }
+        val response = http("GET", "/api/v1/barbershops/pay-a", null)
+        assertEquals(200, response.statusCode(), response.body())
+        val body = mapper.readTree(response.body())
+        assertEquals(21, body.path("bookingWindowDays").asInt())
+        assertEquals("Calle 10 # 20-30", body.path("address").asString())
+        assertEquals("Bogotá", body.path("city").asString())
+        assertTrue(body.path("id").isMissingNode)
+        assertTrue(body.path("barbershopId").isMissingNode)
+    }
+
+    @Test
+    fun `NONE appointment detail has no deposit`() {
+        inShop(shop) { settings.configure(shop, PaymentSettingsRequest(DepositMode.NONE)) }
+        assertTrue(detail(create()).path("deposit").isNull)
+        val history = mapper.readTree(http("GET", "/api/v1/me/appointments", customer).body()).path("upcoming").first()
+        assertTrue(history.path("depositStatus").isNull)
+        assertEquals("NONE", history.path("refundStatus").asString())
+        assertTrue(history.path("cancellable").asBoolean())
+    }
+
+    @Test
+    fun `pending BreB detail restores original instructions after changing mode and deactivating shop`() {
+        breb()
+        val created = create()
+        configureWompi()
+        inShop(shop) { jdbc.update("update barbershop set active = false where id = ?", shop) }
+        val deposit = detail(created).path("deposit")
+        assertEquals("BREB_MANUAL", deposit.path("method").asString())
+        assertEquals("PENDING", deposit.path("status").asString())
+        assertEquals("PENDING", deposit.path("latestAttemptStatus").asString())
+        assertEquals(12000L, deposit.path("amountCop").asLong())
+        assertEquals(created.path("paymentReference"), deposit.path("reference"))
+        assertEquals(created.path("holdExpiresAt"), deposit.path("holdExpiresAt"))
+        assertEquals(created.path("paymentInstructions"), deposit.path("paymentInstructions"))
+        assertEquals("NONE", deposit.path("refundStatus").asString())
+        assertFalse(deposit.path("canRetry").asBoolean())
+        val forbidden = http("GET", detailPath(created), user("3000000199"))
+        assertEquals(404, forbidden.statusCode())
+        listOf("Private", "Integrity", "Events", "privateKey", "integritySecret", "eventsSecret").forEach {
+            assertFalse(deposit.toString().contains(it))
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["PENDING", "APPROVED", "VOIDED", "DECLINED", "EXPIRED", "ERROR", "LATE_PAYMENT"])
+    fun `detail projects each deposit status without exposing instructions when payment cannot resume`(status: String) {
+        breb()
+        val created = create()
+        inShop(shop) { jdbc.update("update deposit_payment set status = ? where barbershop_id = ?", status, shop) }
+        val deposit = detail(created).path("deposit")
+        assertEquals(status, deposit.path("status").asString())
+        assertEquals(status, deposit.path("latestAttemptStatus").asString())
+        assertFalse(deposit.path("canRetry").asBoolean())
+        assertEquals(status != "PENDING", deposit.path("paymentInstructions").isNull)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["DECLINED", "ERROR"])
+    fun `Wompi canRetry matches retry eligibility and expires exactly at the hold boundary`(status: String) {
+        configureWompi()
+        val created = create()
+        assertFalse(detail(created).path("deposit").path("canRetry").asBoolean())
+        inShop(shop) { jdbc.update("update deposit_payment set status = ? where barbershop_id = ?", status, shop) }
+        assertTrue(detail(created).path("deposit").path("canRetry").asBoolean())
+        val retry = http("POST", "/api/v1/appointments/${created.path("publicToken").asString()}/payment-attempts", customer)
+        assertEquals(200, retry.statusCode(), retry.body())
+        assertFalse(detail(created).path("deposit").path("canRetry").asBoolean())
+        inShop(shop) { jdbc.update("update deposit_payment set status = ? where barbershop_id = ?", status, shop) }
+        val expiry = java.time.OffsetDateTime.parse(created.path("holdExpiresAt").asString()).toInstant()
+        clock.set(expiry.minusNanos(1))
+        assertTrue(detail(created).path("deposit").path("canRetry").asBoolean())
+        clock.set(expiry)
+        assertFalse(detail(created).path("deposit").path("canRetry").asBoolean())
+        assertEquals(409, http("POST", "/api/v1/appointments/${created.path("publicToken").asString()}/payment-attempts", customer).statusCode())
+        clock.set(expiry.plusSeconds(1))
+        assertFalse(detail(created).path("deposit").path("canRetry").asBoolean())
+    }
+
+    @Test
+    fun `detail and history retain approved refund when a newer attempt failed`() {
+        configureWompi()
+        val created = create()
+        assertEquals(200, webhook(created, status = "DECLINED").statusCode())
+        assertEquals(200, http("POST", "/api/v1/appointments/${created.path("publicToken").asString()}/payment-attempts", customer).statusCode())
+        val id = appointmentId(created)
+        inShop(shop) {
+            jdbc.update("update deposit_payment set status = 'APPROVED', refund_status = 'PENDING' where barbershop_id = ? and attempt = 1", shop)
+            jdbc.update("update deposit_payment set status = 'ERROR' where barbershop_id = ? and attempt = 2", shop)
+            jdbc.update("update appointment set status = 'CANCELLED' where barbershop_id = ? and id = ?", shop, id)
+        }
+        val deposit = detail(created).path("deposit")
+        assertEquals("APPROVED", deposit.path("status").asString())
+        assertEquals("ERROR", deposit.path("latestAttemptStatus").asString())
+        assertEquals("PENDING", deposit.path("refundStatus").asString())
+        assertFalse(deposit.path("canRetry").asBoolean())
+        val history = mapper.readTree(http("GET", "/api/v1/me/appointments", customer).body()).path("upcoming").first()
+        assertEquals("APPROVED", history.path("depositStatus").asString())
+        assertEquals("PENDING", history.path("refundStatus").asString())
+        assertFalse(history.path("cancellable").asBoolean())
+        assertEquals(204, refunded(id, owner).statusCode())
+        assertEquals("DONE", detail(created).path("deposit").path("refundStatus").asString())
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [true, false])
+    fun `detail exposes cancellation refund state`(onTime: Boolean) {
+        breb()
+        cancelHours(if (onTime) 1 else 6)
+        val created = create()
+        approve(appointmentId(created))
+        assertEquals(200, cancel(created).statusCode())
+        val deposit = detail(created).path("deposit")
+        assertEquals("APPROVED", deposit.path("status").asString())
+        assertEquals(if (onTime) "PENDING" else "FORFEITED", deposit.path("refundStatus").asString())
+        assertTrue(deposit.path("paymentInstructions").isNull)
+    }
+
+    @Test
+    fun `retry contract disables Wompi attempts when current mode or appointment state does not permit retry`() {
+        configureWompi()
+        val created = create()
+        inShop(shop) { jdbc.update("update deposit_payment set status = 'ERROR' where barbershop_id = ?", shop) }
+        assertTrue(detail(created).path("deposit").path("canRetry").asBoolean())
+        inShop(shop) { settings.configure(shop, PaymentSettingsRequest(DepositMode.NONE)) }
+        assertFalse(detail(created).path("deposit").path("canRetry").asBoolean())
+        configureWompi()
+        listOf("CONFIRMED", "CANCELLED", "EXPIRED", "COMPLETED", "NO_SHOW").forEach { state ->
+            inShop(shop) { jdbc.update("update appointment set status = ? where barbershop_id = ?", state, shop) }
+            assertFalse(detail(created).path("deposit").path("canRetry").asBoolean(), state)
+            assertEquals(409, http("POST", "/api/v1/appointments/${created.path("publicToken").asString()}/payment-attempts", customer).statusCode())
+        }
+    }
+
+    @Test
+    fun `pending manual instructions disappear at hold expiry and history disables cancellation at start`() {
+        breb()
+        val created = create()
+        clock.set(java.time.OffsetDateTime.parse(created.path("holdExpiresAt").asString()).toInstant())
+        assertTrue(detail(created).path("deposit").path("paymentInstructions").isNull)
+        clock.set(Instant.parse("2026-10-19T15:00:00Z"))
+        val history = mapper.readTree(http("GET", "/api/v1/me/appointments", customer).body()).path("upcoming").first()
+        assertFalse(history.path("cancellable").asBoolean())
+    }
+
+    private fun businessCounts(): List<Int> = inShop(shop) {
+        listOf("customer", "appointment", "deposit_payment", "deposit_event").map {
+            checkNotNull(jdbc.queryForObject("select count(*) from $it where barbershop_id = ?", Int::class.java, shop))
+        }
+    }
+    private fun quotePath(startsAt: String = "2026-10-19T10:00:00-05:00", b: UUID = barber, s: UUID = service) =
+        "/api/v1/barbershops/pay-a/booking-quote?serviceId=$s&barberId=$b&startsAt=$startsAt"
+    private fun quote(startsAt: String = "2026-10-19T10:00:00-05:00") = http("GET", quotePath(startsAt), customer)
+    private fun detailPath(created: JsonNode) = "/api/v1/appointments/${created.path("publicToken").asString()}"
+    private fun detail(created: JsonNode): JsonNode {
+        val response = http("GET", detailPath(created), customer)
+        assertEquals(200, response.statusCode(), response.body())
+        return mapper.readTree(response.body())
+    }
+
     private fun cancelHours(hours: Int) = inShop(shop) { jdbc.update("update barbershop set cancel_hours = ? where id = ?", hours, shop) }
     private fun cancelPath(created: JsonNode) = "/api/v1/appointments/${created.path("publicToken").asString()}/cancel"
     private fun cancel(created: JsonNode, actor: AppUser = customer) = http("POST", cancelPath(created), actor)
