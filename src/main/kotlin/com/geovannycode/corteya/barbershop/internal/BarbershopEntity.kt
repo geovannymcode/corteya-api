@@ -62,4 +62,10 @@ data class BarbershopEntity(
     @field:Generated(event = [EventType.INSERT, EventType.UPDATE])
     @field:Column(name = "updated_at", nullable = false, insertable = false, updatable = false)
     val updatedAt: Instant = Instant.EPOCH,
+
+    @field:Column(name = "address")
+    val address: String? = null,
+
+    @field:Column(name = "city")
+    val city: String? = null,
 )
