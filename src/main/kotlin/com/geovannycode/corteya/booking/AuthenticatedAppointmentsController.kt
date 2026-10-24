@@ -30,18 +30,13 @@ class AuthenticatedAppointmentsController(
     private val policy: AuthorizationPolicy, private val queries: BookingQueries,
     private val availability: AvailabilityService, private val clock: Clock,
     private val cancellations: CancellationService,
+    private val myAppointments: MyAppointmentsService,
 ) {
     @GetMapping("/me/appointments")
     @Operation(summary = "Citas propias de todas las barberías, agrupadas por fecha de fin")
     fun mine(@AuthenticationPrincipal jwt: Jwt): ResponseEntity<MyAppointmentsResponse> {
-        val user = policy.user(UUID.fromString(jwt.subject))
-        val now = clock.instant()
-        val rows = queries.mine(user.id)
-        val cancellationsById = cancellations.policies(rows)
-        val (upcoming, past) = rows.partition { it.endsAt > now }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
-            MyAppointmentsResponse(upcoming.map { it.response(cancellationsById.getValue(it.id)) },
-                past.asReversed().map { it.response(cancellationsById.getValue(it.id)) }),
+            myAppointments.mine(UUID.fromString(jwt.subject)),
         )
     }
 

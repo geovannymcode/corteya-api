@@ -12,10 +12,6 @@ import org.springframework.stereotype.Service
 @Service
 class BookingQueries(private val bookings: AppointmentRepository, private val policy: AuthorizationPolicy,
     private val tenants: TenantTransaction) {
-    fun mine(userId: UUID): List<AppointmentEntity> = policy.barbershops(userId).flatMap { id ->
-        tenants.execute(id) { bookings.findByUser(id, userId) }
-    }.sortedWith(compareBy<AppointmentEntity> { it.startsAt }.thenBy { it.id.toString() })
-
     fun appointment(userId: UUID, token: String): AppointmentEntity {
         for (id in policy.barbershops(userId)) {
             val result = tenants.execute(id) { bookings.findByPublicToken(id, token) } ?: continue

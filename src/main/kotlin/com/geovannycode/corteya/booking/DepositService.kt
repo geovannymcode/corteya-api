@@ -1,6 +1,7 @@
 package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.booking.dto.DepositResponse
+import com.geovannycode.corteya.booking.dto.AppointmentDepositResponse
 import com.geovannycode.corteya.booking.dto.PaymentInstructions
 import com.geovannycode.corteya.booking.internal.*
 import com.geovannycode.corteya.identity.AuthorizationPolicy
@@ -32,12 +33,29 @@ class DepositService(
             val a = bookings.lock(visible.barbershopId, visible.id) ?: BookingFailure.notFound()
             val previous = deposits.latest(a.barbershopId, a.id) ?: BookingFailure.notFound()
             val configuration = settings.current(a.barbershopId)
-            if (a.status != AppointmentStatus.PENDING_PAYMENT || a.holdExpiresAt?.isAfter(clock.instant()) != true ||
-                previous.method != DepositMode.WOMPI || configuration.mode != DepositMode.WOMPI ||
-                previous.status !in listOf(DepositStatus.DECLINED, DepositStatus.ERROR)) {
+            if (!DepositHistory.canRetry(a, previous, configuration.mode, clock.instant())) {
                 throw ApiFailure(409, "No puedes reintentar este pago o la reserva ya venció")
             }
             gateway(DepositMode.WOMPI).instructions(configuration, deposits.create(a, configuration, clock.instant(), previous.attempt + 1), a)
+        }
+    }
+
+    fun detail(appointment: AppointmentEntity): AppointmentDepositResponse? = tenants.execute(appointment.barbershopId) {
+        val payments = deposits.readForAppointments(appointment.barbershopId, listOf(appointment.id))
+        val effective = DepositHistory.effective(payments)
+        if (effective == null) null else {
+            val latest = payments.maxBy { it.attempt }
+            val now = clock.instant()
+            val configuration = settings.current(appointment.barbershopId)
+            val instructions = if (effective.method == DepositMode.BREB_MANUAL && effective.status == DepositStatus.PENDING &&
+                appointment.status == AppointmentStatus.PENDING_PAYMENT && appointment.holdExpiresAt?.isAfter(now) == true) {
+                val original = deposits.brebSettings(appointment.barbershopId, effective.id)
+                    ?: configuration.takeIf { it.mode == DepositMode.BREB_MANUAL }
+                original?.let { gateway(DepositMode.BREB_MANUAL).instructions(it, effective, appointment) }
+            } else null
+            AppointmentDepositResponse(effective.method, effective.status, effective.amountCop, effective.reference,
+                latest.status, DepositHistory.canRetry(appointment, latest, configuration.mode, now),
+                appointment.holdExpiresAt?.atZone(ZoneId.of("America/Bogota"))?.toOffsetDateTime(), effective.refundStatus, instructions)
         }
     }
 

@@ -5,6 +5,9 @@ import java.time.Instant
 /** Pure policy projection shared by creation, polling and cancellation. */
 data class CancellationPolicy(val cancellableWithRefundUntil: Instant, val cancelPolicyText: String, val cancelHours: Int) {
     companion object {
+        fun canCancel(status: AppointmentStatus, startsAt: Instant, now: Instant): Boolean =
+            status in listOf(AppointmentStatus.PENDING_PAYMENT, AppointmentStatus.CONFIRMED) && now.isBefore(startsAt)
+
         fun forAppointment(startsAt: Instant, cancelHours: Int, hasDeposit: Boolean): CancellationPolicy = CancellationPolicy(
             startsAt.minusSeconds(cancelHours.toLong() * 3600),
             if (hasDeposit) "Si cancelas con al menos $cancelHours horas de anticipación, la barbería te devolverá la señal. Si cancelas después, la señal no es reembolsable. Solo puedes cancelar antes del inicio."

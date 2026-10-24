@@ -11,7 +11,7 @@ data class ShopDetails(
     val primaryColor: String = "#1F2937", val secondaryColor: String = "#F59E0B",
     val timezone: String = "America/Bogota", val depositPercent: Int = 30, val cancelHours: Int = 24,
     val active: Boolean = true, val slotStepMinutes: Int = 15, val minLeadMinutes: Int = 30,
-    val bookingWindowDays: Int = 14, val holdMinutes: Int = 15,
+    val bookingWindowDays: Int = 14, val holdMinutes: Int = 15, val address: String? = null, val city: String? = null,
 )
 
 @Service
@@ -22,5 +22,5 @@ class BarbershopService(private val repository: BarbershopRepository) {
     fun findById(barbershopId: UUID): ShopDetails? = repository.findById(barbershopId)?.details()
 
     private fun BarbershopEntity.details() = ShopDetails(id, slug, name, logoUrl, primaryColor, secondaryColor,
-        timezone, depositPercent, cancelHours, active, slotStepMinutes, minLeadMinutes, bookingWindowDays, holdMinutes)
+        timezone, depositPercent, cancelHours, active, slotStepMinutes, minLeadMinutes, bookingWindowDays, holdMinutes, address, city)
 }

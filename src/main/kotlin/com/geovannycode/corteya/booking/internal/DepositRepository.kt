@@ -14,9 +14,12 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
         val mode = settings.mode
         val payment = DepositPayment(UUID.randomUUID(), a.barbershopId, a.id, mode, a.depositCop,
             if (mode == DepositMode.WOMPI) "${a.paymentReference}-$attempt" else a.paymentReference, attempt, DepositStatus.PENDING)
-        jdbc.update("""insert into deposit_payment (id, barbershop_id, appointment_id, method, amount_cop, reference, attempt, status, wompi_webhook_id, wompi_settings, created_at, updated_at)
-            values (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?::jsonb, ?, ?)""", payment.id, a.barbershopId, a.id, mode.name, payment.amountCop,
-            payment.reference, attempt, settings.webhookId, if (mode == DepositMode.WOMPI) mapper.writeValueAsString(settings) else null, Timestamp.from(now), Timestamp.from(now))
+        jdbc.update("""insert into deposit_payment (id, barbershop_id, appointment_id, method, amount_cop, reference, attempt, status, wompi_webhook_id, wompi_settings, breb_settings, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?::jsonb, ?::jsonb, ?, ?)""", payment.id, a.barbershopId, a.id, mode.name, payment.amountCop,
+            payment.reference, attempt, settings.webhookId, if (mode == DepositMode.WOMPI) mapper.writeValueAsString(settings) else null,
+            if (mode == DepositMode.BREB_MANUAL) mapper.writeValueAsString(PaymentSettings(a.barbershopId, mode,
+                brebKeyType = settings.brebKeyType, brebKey = settings.brebKey, brebHolderName = settings.brebHolderName)) else null,
+            Timestamp.from(now), Timestamp.from(now))
         event(payment, null, DepositStatus.PENDING, DepositEventSource.SYSTEM, null, now)
         return payment
     }
@@ -29,6 +32,17 @@ class DepositRepository(private val jdbc: JdbcTemplate, private val mapper: tool
     fun latest(shop: UUID, appointment: UUID): DepositPayment? = jdbc.query(
         "select * from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt desc limit 1",
         { r, _ -> r.payment() }, shop, appointment).singleOrNull()
+
+    fun readForAppointments(shop: UUID, appointments: List<UUID>): List<DepositPayment> {
+        if (appointments.isEmpty()) return emptyList()
+        val placeholders = appointments.joinToString(",") { "?" }
+        return jdbc.query("select * from deposit_payment where barbershop_id = ? and appointment_id in ($placeholders) order by attempt",
+            { r, _ -> r.payment() }, *listOf(shop, *appointments.toTypedArray()).toTypedArray())
+    }
+
+    fun brebSettings(shop: UUID, payment: UUID): PaymentSettings? = jdbc.query(
+        "select breb_settings::text from deposit_payment where barbershop_id = ? and id = ?",
+        { r, _ -> r.getString(1)?.let { mapper.readValue(it, PaymentSettings::class.java) } }, shop, payment).singleOrNull()
 
     fun forAppointment(shop: UUID, appointment: UUID): List<DepositPayment> = jdbc.query(
         "select * from deposit_payment where barbershop_id = ? and appointment_id = ? order by attempt for update",

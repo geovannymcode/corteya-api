@@ -54,6 +54,11 @@ class AvailabilityService(
         return BookingSelection(shop, barber, service)
     }
 
+    fun requireSlot(selection: BookingSelection, startsAt: Instant, now: Instant) {
+        val date = startsAt.atZone(ZoneId.of(selection.shop.timezone)).toLocalDate()
+        if (startsAt !in slots(selection, date, now).all()) BookingFailure.slotTaken()
+    }
+
     fun availability(slug: String, barberId: UUID, serviceId: UUID, date: LocalDate): Slots =
         slots(select(slug, barberId, serviceId), date, clock.instant())
 

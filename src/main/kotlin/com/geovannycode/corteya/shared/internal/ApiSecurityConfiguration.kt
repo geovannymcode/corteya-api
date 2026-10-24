@@ -38,6 +38,7 @@ class ApiSecurityConfiguration {
             .authorizeHttpRequests {
                 it.requestMatchers(HttpMethod.POST, "/api/v1/webhooks/wompi/*").permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/v1/auth/otp/request", "/api/v1/auth/otp/verify", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/v1/barbershops/*/booking-quote").hasRole("CUSTOMER")
                     .requestMatchers(HttpMethod.GET, "/api/v1/barbershops/*", "/api/v1/barbershops/*/services",
                         "/api/v1/barbershops/*/barbers", "/api/v1/barbershops/*/availability").permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/v1/barbershops/*/appointments").hasRole("CUSTOMER")

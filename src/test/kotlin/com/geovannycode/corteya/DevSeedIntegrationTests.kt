@@ -25,6 +25,9 @@ class DevSeedIntegrationTests : PostgresIntegrationTest(profile = "dev") {
         inShop(UUID.fromString("10000000-0000-0000-0000-000000000001")) {
         assertEquals("BREB_MANUAL", jdbc.queryForObject("select deposit_mode from barbershop_payment_settings", String::class.java))
         assertEquals(30, jdbc.queryForObject("select hold_minutes from barbershop_payment_settings", Int::class.java))
+        assertEquals("Calle de ejemplo 123", jdbc.queryForObject("select address from barbershop", String::class.java))
+        assertEquals("Bogotá", jdbc.queryForObject("select city from barbershop", String::class.java))
+        assertEquals(14, jdbc.queryForObject("select booking_window_days from barbershop", Int::class.java))
         flyway.validate()
         assertEquals(0, flyway.migrate().migrationsExecuted)
         val expected = mapOf("barbershop" to 1, "barber" to 3, "service" to 4,

@@ -439,6 +439,13 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         val publicSchema = document.path("components").path("schemas").path("BarbershopResponse").path("properties")
         assertTrue(publicSchema.path("id").isMissingNode)
         assertTrue(publicSchema.path("barbershopId").isMissingNode)
+        val quote = document.path("paths").path("/api/v1/barbershops/{slug}/booking-quote").path("get")
+        assertTrue(quote.path("security").first().path("bearerAuth").isArray)
+        val schemas = document.path("components").path("schemas")
+        assertFalse(schemas.path("BookingQuoteResponse").path("properties").path("payAtShopCop").isMissingNode)
+        assertFalse(schemas.path("AppointmentDetailResponse").path("properties").path("deposit").isMissingNode)
+        assertFalse(schemas.path("MyAppointmentResponse").path("properties").path("serviceName").isMissingNode)
+        listOf("bookingWindowDays", "address", "city").forEach { assertFalse(publicSchema.path(it).isMissingNode, it) }
         val booking = document.path("components").path("schemas").path("CreateAppointmentRequest").path("properties")
         assertEquals(3, booking.size())
         assertTrue(booking.path("customerName").isMissingNode)
@@ -452,25 +459,42 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
 
     @ParameterizedTest
     @ValueSource(ints = [0, 1, 2])
-    fun `history loads legacy cancellation hours only once per shop and retains snapshots`(legacyShops: Int) {
+    fun `history loads names and cancellation policy once per shop and retains snapshots`(legacyShops: Int) {
         val me = login("3001234567")
         listOf("09:00", "10:00").forEach { time ->
             assertEquals(201, book(me, time = time).statusCode())
             assertEquals(201, book(me, slug = "shop-b", b = otherBarber, s = otherService, time = time).statusCode())
         }
         listOf(shop to 6, otherShop to 12).forEach { (id, hours) -> inShop(id) {
-            jdbc.update("update barbershop set cancel_hours = ?, active = ? where id = ?", hours, id == shop, id)
+            val suffix = if (id == shop) "A" else "B"
+            jdbc.update("update barbershop set cancel_hours = ?, active = ?, name = ?, logo_url = ? where id = ?",
+                hours, id == shop, "Barbería $suffix", "https://example.com/logo-$suffix.png", id)
+            jdbc.update("update barber set name = ?, active = false where barbershop_id = ?", "Barbero $suffix", id)
+            jdbc.update("update service set name = ?, active = false where barbershop_id = ?", "Corte $suffix", id)
             if (legacyShops == 2 || (legacyShops == 1 && id == otherShop)) {
                 jdbc.update("update appointment set cancel_hours_snapshot = null where barbershop_id = ?", id)
             }
         } }
-        val response = withShopPolicyQueries(legacyShops.toLong()) { send("GET", "/api/v1/me/appointments", token = me.access) }
+        val response = withHistoryCatalogQueries(2) {
+            withShopPolicyQueries(2) { send("GET", "/api/v1/me/appointments", token = me.access) }
+        }
         assertEquals(200, response.statusCode(), response.body())
         val appointments = body(response).path("upcoming")
         assertEquals(4, appointments.size())
         appointments.forEach { appointment ->
             val isOtherShop = inShop(otherShop) { jdbc.queryForObject("select exists(select 1 from appointment where barbershop_id = ? and public_token = ?)",
                 Boolean::class.java, otherShop, appointment.path("publicToken").asString()) == true }
+            assertEquals(if (isOtherShop) "shop-b" else "shop-a", appointment.path("barbershopSlug").asString())
+            val suffix = if (isOtherShop) "B" else "A"
+            assertEquals("Barbería $suffix", appointment.path("barbershopName").asString())
+            assertEquals("Barbero $suffix", appointment.path("barberName").asString())
+            assertEquals("Corte $suffix", appointment.path("serviceName").asString())
+            assertEquals("https://example.com/logo-$suffix.png", appointment.path("barbershopLogoUrl").asString())
+            assertEquals(38000L, appointment.path("priceCop").asLong())
+            assertEquals(12000L, appointment.path("depositCop").asLong())
+            assertEquals("PENDING", appointment.path("depositStatus").asString())
+            assertEquals("NONE", appointment.path("refundStatus").asString())
+            assertTrue(appointment.path("cancellable").asBoolean())
             val hours = if (isOtherShop && legacyShops >= 1) 12L else if (!isOtherShop && legacyShops == 2) 6L else 24L
             val startsAt = java.time.OffsetDateTime.parse(appointment.path("startsAt").asString())
             assertEquals(startsAt.minusHours(hours), java.time.OffsetDateTime.parse(appointment.path("cancellableWithRefundUntil").asString()))
@@ -495,6 +519,20 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest(web = true) {
         body(response).forEach { row ->
             assertTrue(row.path("appointment").path("cancelPolicyText").asString().contains("al menos 6 horas"))
         }
+    }
+
+    private fun <T> withHistoryCatalogQueries(expected: Long, operation: () -> T): T {
+        val statistics = entityManagerFactory.unwrap(org.hibernate.SessionFactory::class.java).statistics
+        val wasEnabled = statistics.isStatisticsEnabled
+        statistics.isStatisticsEnabled = true
+        val queries = listOf("select e from ServiceEntity e where e.barbershopId = :barbershopId",
+            "select e from BarberEntity e where e.barbershopId = :barbershopId")
+        val before = queries.associateWith { statistics.getQueryStatistics(it).executionCount }
+        try {
+            val result = operation()
+            queries.forEach { query -> assertEquals(expected, statistics.getQueryStatistics(query).executionCount - before.getValue(query), query) }
+            return result
+        } finally { statistics.isStatisticsEnabled = wasEnabled }
     }
 
     private fun <T> withShopPolicyQueries(expected: Long, operation: () -> T): T {

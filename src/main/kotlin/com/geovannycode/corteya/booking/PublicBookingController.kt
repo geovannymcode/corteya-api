@@ -1,7 +1,8 @@
 package com.geovannycode.corteya.booking
 
 import com.geovannycode.corteya.barbershop.ShopStatusService
-import com.geovannycode.corteya.booking.dto.AppointmentStatusResponse
+import com.geovannycode.corteya.booking.dto.AppointmentDetailResponse
+import com.geovannycode.corteya.booking.dto.BookingQuoteResponse
 import com.geovannycode.corteya.booking.dto.AvailabilityResponse
 import com.geovannycode.corteya.booking.dto.BarberResponse
 import com.geovannycode.corteya.booking.dto.BarbershopResponse
@@ -50,14 +51,18 @@ class PublicBookingController(
     private val policy: AuthorizationPolicy,
     private val paymentSettings: PaymentSettingsService,
     private val cancellations: CancellationService,
+    private val quotes: BookingQuoteService,
+    private val deposits: DepositService,
 ) {
     @GetMapping("/barbershops/{slug}")
     @Operation(summary = "Identidad y estado de apertura de la barbería")
+    @ApiResponse(responseCode = "200", description = "Identidad pública y reglas de reserva sin UUID de barbería",
+        content = [Content(schema = Schema(implementation = BarbershopResponse::class))])
     fun shop(@PathVariable slug: String): BarbershopResponse {
         val shop = availability.shop(slug)
         val status = shopStatus.status(shop)
         return BarbershopResponse(shop.slug, shop.name, shop.logoUrl, shop.primaryColor, shop.secondaryColor,
-            status.open, status.message, status.nextChangeAt?.bogota(), paymentSettings.bookingEnabled(shop.id))
+            status.open, status.message, status.nextChangeAt?.bogota(), paymentSettings.bookingEnabled(shop.id), shop.bookingWindowDays, shop.address, shop.city)
     }
 
     @GetMapping("/barbershops/{slug}/services")
@@ -82,6 +87,19 @@ class PublicBookingController(
     }
 
     @SecurityRequirement(name = "bearerAuth")
+    @GetMapping("/barbershops/{slug}/booking-quote")
+    @Operation(summary = "Cotizar un hueco sin reservarlo; la creación vuelve a validar disponibilidad")
+    @ApiResponse(responseCode = "409", description = "Horario no disponible o reservas no habilitadas")
+    fun quote(@PathVariable slug: String, @RequestParam serviceId: UUID, @RequestParam barberId: UUID,
+        @RequestParam startsAt: OffsetDateTime, @AuthenticationPrincipal jwt: Jwt): ResponseEntity<BookingQuoteResponse> {
+        val terms = quotes.quote(UUID.fromString(jwt.subject), slug, barberId, serviceId, startsAt.toInstant())
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(BookingQuoteResponse(
+            terms.priceCop, terms.depositMode, terms.depositCop, terms.payAtShopCop, terms.holdMinutes,
+            terms.cancellationPolicy.cancellableWithRefundUntil.bogota(), terms.cancellationPolicy.cancelPolicyText,
+        ))
+    }
+
+    @SecurityRequirement(name = "bearerAuth")
     @PostMapping("/barbershops/{slug}/appointments")
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Reservar un hueco y retenerlo hasta el vencimiento de la señal")
@@ -102,14 +120,16 @@ class PublicBookingController(
     @SecurityRequirement(name = "bearerAuth")
     @GetMapping("/appointments/{publicToken}")
     @Operation(summary = "Consultar el estado con sesión: propietario de la cita o staff de su barbería")
-    fun appointment(@PathVariable publicToken: String, @AuthenticationPrincipal jwt: Jwt): ResponseEntity<AppointmentStatusResponse> {
+    @ApiResponse(responseCode = "200", description = "Cita y señal sin secretos de pago",
+        content = [Content(schema = Schema(implementation = AppointmentDetailResponse::class))])
+    fun appointment(@PathVariable publicToken: String, @AuthenticationPrincipal jwt: Jwt): ResponseEntity<AppointmentDetailResponse> {
         if (!publicToken.matches(Regex("[0-9a-f]{32}"))) BookingFailure.notFound()
         val result = queries.appointment(UUID.fromString(jwt.subject), publicToken)
         val cancellationPolicy = cancellations.policy(result)
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
-            AppointmentStatusResponse(result.publicToken, result.status, result.startsAt.bogota(), result.endsAt.bogota(),
+            AppointmentDetailResponse(result.publicToken, result.status, result.startsAt.bogota(), result.endsAt.bogota(),
                 result.depositCop, result.paymentReference, result.holdExpiresAt?.bogota(),
-                cancellationPolicy.cancellableWithRefundUntil.bogota(), cancellationPolicy.cancelPolicyText),
+                cancellationPolicy.cancellableWithRefundUntil.bogota(), cancellationPolicy.cancelPolicyText, deposits.detail(result)),
         )
     }
 
