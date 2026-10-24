@@ -58,17 +58,19 @@ class CreateAppointment(
             priceCop = service.priceCop, depositCop = if (payment.mode == DepositMode.NONE) 0 else BookingCodes.depositCop(service.priceCop, shop.depositPercent),
             status = if (payment.mode == DepositMode.NONE) AppointmentStatus.CONFIRMED else AppointmentStatus.PENDING_PAYMENT,
             paymentReference = "", holdExpiresAt = if (payment.mode == DepositMode.NONE) null else now.plusSeconds(payment.holdMinutes.toLong() * 60),
-            createdAt = now, updatedAt = now,
+            createdAt = now, updatedAt = now, cancelHoursSnapshot = shop.cancelHours,
         )
         repeat(32) {
             val appointment = candidate.copy(paymentReference = codes.next())
             if (appointment.depositCop > Long.MAX_VALUE / 100) throw BookingFailure(400, "El monto supera el máximo permitido")
             if (bookings.insert(appointment)) {
-                return CreatedBooking(appointment, deposits.initialize(appointment, payment))
+                return CreatedBooking(appointment, deposits.initialize(appointment, payment),
+                    CancellationPolicy.forAppointment(appointment.startsAt, shop.cancelHours, appointment.depositCop > 0))
             }
         }
         throw BookingFailure(409, "No pudimos asignar una referencia a tu reserva, intenta de nuevo")
     }
 }
 
-data class CreatedBooking(val appointment: AppointmentEntity, val paymentInstructions: com.geovannycode.corteya.booking.dto.PaymentInstructions?)
+data class CreatedBooking(val appointment: AppointmentEntity, val paymentInstructions: com.geovannycode.corteya.booking.dto.PaymentInstructions?,
+    val cancellationPolicy: CancellationPolicy)

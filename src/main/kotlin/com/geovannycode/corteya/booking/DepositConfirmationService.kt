@@ -22,10 +22,17 @@ class DepositConfirmationService(
             UUID::class.java, shop, paymentId) ?: BookingFailure.notFound()
         val appointment = bookings.lock(shop, appointmentId) ?: BookingFailure.notFound()
         val payment = deposits.find(shop, paymentId) ?: BookingFailure.notFound()
-        if (payment.status in listOf(DepositStatus.APPROVED, DepositStatus.LATE_PAYMENT) ||
-            appointment.status in listOf(AppointmentStatus.CANCELLED, AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW)) return@execute
+        if (payment.status in listOf(DepositStatus.APPROVED, DepositStatus.LATE_PAYMENT)) return@execute
         if (payment.providerTransactionId != null && payment.providerTransactionId != transactionId && transactionId != null) BookingFailure.notFound()
         val now = clock.instant()
+        if (appointment.status == AppointmentStatus.CANCELLED) {
+            if (source == DepositEventSource.WEBHOOK && payment.method == DepositMode.WOMPI) {
+                deposits.transition(payment, DepositStatus.APPROVED, source, now, transactionId = transactionId, providerStatus = "APPROVED")
+                deposits.refund(payment.copy(status = DepositStatus.APPROVED), RefundStatus.PENDING, DepositEventSource.SYSTEM, now)
+            }
+            return@execute
+        }
+        if (appointment.status in listOf(AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW)) return@execute
         if (appointment.status == AppointmentStatus.PENDING_PAYMENT && appointment.holdExpiresAt?.isBefore(now) == true) {
             bookings.setStatus(shop, appointment.id, AppointmentStatus.EXPIRED)
         }

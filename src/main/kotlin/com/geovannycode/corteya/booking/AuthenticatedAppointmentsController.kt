@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController
 class AuthenticatedAppointmentsController(
     private val policy: AuthorizationPolicy, private val queries: BookingQueries,
     private val availability: AvailabilityService, private val clock: Clock,
+    private val cancellations: CancellationService,
 ) {
     @GetMapping("/me/appointments")
     @Operation(summary = "Citas propias de todas las barberías, agrupadas por fecha de fin")
@@ -51,6 +52,10 @@ class AuthenticatedAppointmentsController(
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(rows.map { AgendaAppointmentResponse(it.barberId, it.serviceId, it.response()) })
     }
 
-    private fun AppointmentEntity.response() = AppointmentStatusResponse(publicToken, status, startsAt.bogota(), endsAt.bogota(), depositCop, paymentReference, holdExpiresAt?.bogota())
+    private fun AppointmentEntity.response(): AppointmentStatusResponse {
+        val cancellation = cancellations.policy(this)
+        return AppointmentStatusResponse(publicToken, status, startsAt.bogota(), endsAt.bogota(), depositCop, paymentReference,
+            holdExpiresAt?.bogota(), cancellation.cancellableWithRefundUntil.bogota(), cancellation.cancelPolicyText)
+    }
     private fun Instant.bogota(): OffsetDateTime = atZone(ZoneId.of("America/Bogota")).toOffsetDateTime()
 }

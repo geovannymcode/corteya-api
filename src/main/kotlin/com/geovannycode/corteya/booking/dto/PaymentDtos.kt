@@ -38,5 +38,5 @@ data class PaymentInstructions(
 
 data class DepositResponse(
     val id: UUID, val appointmentId: UUID, val method: DepositMode, val amountCop: Long,
-    val reference: String, val status: DepositStatus, val confirmedAt: OffsetDateTime?,
+    val reference: String, val status: DepositStatus, val confirmedAt: OffsetDateTime?, val refundStatus: RefundStatus,
 )
