@@ -54,6 +54,10 @@ class AvailabilityService(
         return BookingSelection(shop, barber, service)
     }
 
+    fun lockSchedule(selection: BookingSelection) {
+        if (!barbers.lockSchedule(selection.shop.id, selection.barber.id)) BookingFailure.notFound()
+    }
+
     fun requireSlot(selection: BookingSelection, startsAt: Instant, now: Instant) {
         val date = startsAt.atZone(ZoneId.of(selection.shop.timezone)).toLocalDate()
         if (startsAt !in slots(selection, date, now).all()) BookingFailure.slotTaken()

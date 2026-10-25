@@ -7,4 +7,5 @@ import java.util.UUID
 data class AppointmentCancelled(
     val barbershopId: UUID, val appointmentId: UUID, val publicToken: String,
     val refundStatus: RefundStatus, val refundAmountCop: Long, val cancelledAt: Instant,
+    val origin: CancellationOrigin = CancellationOrigin.CLIENT, val reason: String? = null,
 )

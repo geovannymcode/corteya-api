@@ -45,8 +45,8 @@ class DevPaymentInitializer(private val settings: PaymentSettingsService, privat
             "WOMPI_SANDBOX_INTEGRITY_SECRET" to "test_integrity_[A-Za-z0-9]+",
             "WOMPI_SANDBOX_EVENTS_SECRET" to "test_events_[A-Za-z0-9]+")
         val values = patterns.keys.associateWith { environment.getProperty(it).orEmpty() }
-        if (values.values.all(String::isBlank)) return null
-        val invalid = patterns.keys.filter { !values.getValue(it).matches(Regex(patterns.getValue(it))) }
+        if (values.values.all(String::isEmpty)) return null
+        val invalid = patterns.keys.filter { values.getValue(it).length > 200 || !values.getValue(it).matches(Regex(patterns.getValue(it))) }
         invalid.forEach { logger.warn("Configuración dev inválida: {}", it) }
         if (invalid.isNotEmpty()) return null
         val master = try { Base64.getDecoder().decode(environment.getProperty("payments.secrets.key").orEmpty()) }

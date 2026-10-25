@@ -15,11 +15,15 @@ import org.springframework.stereotype.Service
 class DepositConfirmationService(
     private val bookings: AppointmentRepository, private val deposits: DepositRepository,
     private val tenants: TenantTransaction, private val jdbc: JdbcTemplate, private val clock: Clock,
+    private val barbers: com.geovannycode.corteya.catalog.BarberDirectoryService,
+    private val blocks: com.geovannycode.corteya.scheduling.TimeOffService,
 ) {
     fun confirm(shop: UUID, paymentId: UUID, source: DepositEventSource, user: UUID? = null, transactionId: String? = null) = tenants.execute(shop) {
         // Resolve payment first, then lock appointment before payment, matching retries and staff operations.
         val appointmentId = jdbc.queryForObject("select appointment_id from deposit_payment where barbershop_id = ? and id = ?",
             UUID::class.java, shop, paymentId) ?: BookingFailure.notFound()
+        val visible = bookings.findById(shop, appointmentId) ?: BookingFailure.notFound()
+        if (!barbers.lockSchedule(shop, visible.barberId)) BookingFailure.notFound()
         val appointment = bookings.lock(shop, appointmentId) ?: BookingFailure.notFound()
         val payment = deposits.find(shop, paymentId) ?: BookingFailure.notFound()
         if (payment.status in listOf(DepositStatus.APPROVED, DepositStatus.LATE_PAYMENT)) return@execute
@@ -40,7 +44,8 @@ class DepositConfirmationService(
         bookings.expireForBarber(shop, appointment.barberId, now)
         deposits.expirePending(shop, now)
         val current = deposits.find(shop, paymentId) ?: BookingFailure.notFound()
-        val confirmed = tryConfirm(shop, appointment.id)
+        val confirmed = blocks.findOverlapping(shop, appointment.barberId, appointment.startsAt, appointment.endsAt).isEmpty() &&
+            tryConfirm(shop, appointment.id)
         deposits.transition(current, if (confirmed) DepositStatus.APPROVED else DepositStatus.LATE_PAYMENT,
             source, now, user, transactionId, if (source == DepositEventSource.WEBHOOK) "APPROVED" else null)
     }

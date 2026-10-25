@@ -11,6 +11,11 @@ class BarberRepository(private val entityManager: EntityManager) {
         .createQuery("select e from BarberEntity e where e.barbershopId = :barbershopId and e.id = :id", BarberEntity::class.java)
         .setParameter("barbershopId", barbershopId).setParameter("id", id).resultList.singleOrNull()
 
+    fun lock(barbershopId: UUID, id: UUID): Boolean = entityManager
+        .createQuery("select e from BarberEntity e where e.barbershopId = :barbershopId and e.id = :id", BarberEntity::class.java)
+        .setParameter("barbershopId", barbershopId).setParameter("id", id)
+        .setLockMode(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE).resultList.isNotEmpty()
+
     fun findAll(barbershopId: UUID): List<BarberEntity> = entityManager
         .createQuery("select e from BarberEntity e where e.barbershopId = :barbershopId", BarberEntity::class.java)
         .setParameter("barbershopId", barbershopId).resultList

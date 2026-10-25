@@ -50,6 +50,10 @@ class AuthorizationPolicy(
         }
         return AgendaScope(shop.id, requestedBarberId)
     }
+    fun requireBarber(scope: AgendaScope, barberId: UUID) {
+        if (scope.barberId != null && scope.barberId != barberId) notFound()
+    }
+
     fun owner(userId: UUID, slug: String): UUID {
         user(userId)
         val shop = shops.findBySlug(slug) ?: notFound()

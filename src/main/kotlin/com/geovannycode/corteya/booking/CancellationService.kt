@@ -56,7 +56,7 @@ class CancellationService(
             if (refundStatus != RefundStatus.NONE) approved.forEach {
                 deposits.refund(it, refundStatus, DepositEventSource.SYSTEM, now)
             }
-            bookings.setStatus(a.barbershopId, a.id, AppointmentStatus.CANCELLED)
+            bookings.cancel(a.barbershopId, a.id, CancellationOrigin.CLIENT, null)
             val amount = if (refundStatus == RefundStatus.PENDING) approved.fold(0L) { total, payment -> Math.addExact(total, payment.amountCop) } else 0L
             val message = when (refundStatus) {
                 RefundStatus.PENDING -> "Cancelaste a tiempo: la barbería te devolverá \$${NumberFormat.getIntegerInstance(Locale.forLanguageTag("es-CO")).format(amount)}"
@@ -73,7 +73,7 @@ class CancellationService(
         tenants.execute(scope.barbershopId) {
             val a = bookings.lock(scope.barbershopId, appointmentId) ?: BookingFailure.notFound()
             if (scope.barberId != null && a.barberId != scope.barberId) BookingFailure.notFound()
-            val approved = deposits.forAppointment(a.barbershopId, a.id).filter { it.status == DepositStatus.APPROVED }
+            val approved = deposits.forAppointment(a.barbershopId, a.id).filter { it.status in listOf(DepositStatus.APPROVED, DepositStatus.LATE_PAYMENT) }
             if (a.status != AppointmentStatus.CANCELLED || approved.isEmpty() ||
                 approved.none { it.refundStatus in listOf(RefundStatus.PENDING, RefundStatus.DONE) }) {
                 throw ApiFailure(409, "Esta cita no tiene devoluciones pendientes")

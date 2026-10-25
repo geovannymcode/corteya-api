@@ -1,6 +1,7 @@
 package com.geovannycode.corteya.booking.internal
 
 import com.geovannycode.corteya.booking.AppointmentSource
+import com.geovannycode.corteya.booking.CancellationOrigin
 import com.geovannycode.corteya.booking.AppointmentStatus
 import com.geovannycode.corteya.booking.OccupyingAppointment
 import com.geovannycode.corteya.scheduling.TimeInterval
@@ -21,6 +22,11 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
     fun lock(barbershopId: UUID, id: UUID): AppointmentEntity? = jdbc.query(
         "select * from appointment where barbershop_id = ? and id = ? for update",
         { row, _ -> row.toAppointment() }, barbershopId, id).singleOrNull()
+
+    fun cancel(shop: UUID, id: UUID, origin: CancellationOrigin, reason: String?) {
+        jdbc.update("""update appointment set status = 'CANCELLED', cancellation_origin = ?, cancellation_reason = ?,
+            version = version + 1 where barbershop_id = ? and id = ?""", origin.name, reason, shop, id)
+    }
 
     fun setStatus(barbershopId: UUID, id: UUID, status: AppointmentStatus) {
         jdbc.update("update appointment set status = ?, version = version + 1 where barbershop_id = ? and id = ?", status.name, barbershopId, id)
@@ -70,6 +76,13 @@ class AppointmentRepository(private val jdbc: JdbcTemplate, private val entityMa
         """update appointment set status = 'EXPIRED', version = version + 1
             where barbershop_id = ? and status = 'PENDING_PAYMENT' and hold_expires_at < ?""", barbershopId, Timestamp.from(now),
     )
+
+    fun findMany(shop: UUID, ids: List<UUID>): List<AppointmentEntity> {
+        if (ids.isEmpty()) return emptyList()
+        val placeholders = ids.joinToString(",") { "?" }
+        return jdbc.query("select * from appointment where barbershop_id = ? and id in ($placeholders)",
+            { r, _ -> r.toAppointment() }, *listOf(shop, *ids.toTypedArray()).toTypedArray())
+    }
 
     fun findByUser(barbershopId: UUID, userId: UUID): List<AppointmentEntity> = jdbc.query(
         """select a.* from appointment a join customer c on c.barbershop_id = a.barbershop_id and c.id = a.customer_id

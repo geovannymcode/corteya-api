@@ -21,7 +21,9 @@ class ApiExceptionHandler {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @ExceptionHandler(ApiFailure::class)
-    fun known(failure: ApiFailure): ProblemDetail = problem(failure.status, failure.message)
+    fun known(failure: ApiFailure): ProblemDetail = problem(failure.status, failure.message).apply {
+        failure.properties.forEach { (name, value) -> setProperty(name, value) }
+    }
 
     @ExceptionHandler(PessimisticLockingFailureException::class)
     fun contention(): ProblemDetail = problem(409, "Ese horario acaba de ser tomado, elige otro")
