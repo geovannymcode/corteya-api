@@ -120,7 +120,7 @@ class BackendIntegrationTests : PostgresIntegrationTest(web = true) {
     @Test
     fun `migrations run on real PostgreSQL with no dev data by default`() {
         flyway.validate()
-        assertEquals("12", flyway.info().current()?.version?.version)
+        assertEquals("13", flyway.info().current()?.version?.version)
         assertEquals(0, flyway.info().pending().size)
         assertEquals(0, jdbc.queryForObject("select count(*) from flyway_schema_history where script = 'R__demo_data.sql'", Int::class.java))
         assertEquals("UTC", jdbc.queryForObject("show timezone", String::class.java))

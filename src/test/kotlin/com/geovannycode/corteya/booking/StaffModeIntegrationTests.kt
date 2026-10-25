@@ -332,6 +332,72 @@ class StaffModeIntegrationTests : PostgresIntegrationTest(web = true) {
         assertFalse(schemas.path("ActionItem").path("properties").path("providerTransactionId").isMissingNode)
     }
 
+    @Autowired private lateinit var flyway: org.flywaydb.core.Flyway
+
+    @Test fun `summary uses bounded index scans despite thirty thousand historical appointments payments and DONE events`() {
+        val a = body(manual("2026-10-19T10:00:00-05:00"))
+        payment(a, "APPROVED", "DONE", now, now)
+        val path = "/api/v1/barbershops/staff-a/staff/summary?period=DAY&date=2026-10-19"
+        val before = body(http("GET", path, owner))
+        inShop(shop) {
+            val customerId = jdbc.queryForObject("select customer_id from appointment where barbershop_id = ? and id = ?",
+                UUID::class.java, shop, UUID.fromString(a.path("id").asString()))
+            jdbc.update("""insert into appointment (id, barbershop_id, barber_id, service_id, customer_id, starts_at, ends_at,
+                status, price_cop, deposit_cop, payment_reference, source)
+                select gen_random_uuid(), ?, ?, ?, ?, timestamptz '2010-01-01 05:00:00+00' + n * interval '1 minute',
+                    timestamptz '2010-01-01 05:30:00+00' + n * interval '1 minute', 'COMPLETED', 38000, 12000, 'H-' || n, 'MANUAL'
+                from generate_series(1,30000) n""", shop, barber, service, customerId)
+            jdbc.update("""insert into deposit_payment (id, barbershop_id, appointment_id, method, amount_cop, reference, attempt, status, refund_status, confirmed_at)
+                select gen_random_uuid(), barbershop_id, id, 'BREB_MANUAL', 12000, payment_reference, 1, 'APPROVED', 'DONE', starts_at
+                from appointment where barbershop_id = ? and starts_at < timestamptz '2011-01-01 00:00:00+00'""", shop)
+            jdbc.update("""insert into deposit_event (id, barbershop_id, deposit_payment_id, to_status, source, to_refund_status, created_at)
+                select gen_random_uuid(), barbershop_id, id, 'APPROVED', 'STAFF', 'DONE', confirmed_at
+                from deposit_payment where barbershop_id = ? and confirmed_at < timestamptz '2011-01-01 00:00:00+00'""", shop)
+        }
+        // Maintenance only: owner refreshes planner statistics. All fixtures, summaries and EXPLAIN reads use corteya_app/RLS.
+        flyway.configuration.dataSource.connection.use { connection ->
+            assertEquals("corteya_owner", connection.metaData.userName)
+            connection.createStatement().use { statement ->
+                listOf("appointment", "deposit_payment", "deposit_event").forEach { statement.execute("ANALYZE $it") }
+            }
+        }
+        assertEquals(before, body(http("GET", path, owner)))
+        val expectedIndexes = setOf("idx_appointment_shop_starts", "idx_deposit_payment_shop_confirmed",
+            "idx_deposit_payment_shop_refund", "idx_deposit_event_shop_refund_created")
+        val output = java.nio.file.Path.of("build/reports/staff-summary")
+        java.nio.file.Files.createDirectories(output)
+        listOf("owner" to null, "barber" to barber).forEach { (role, filter) -> inShop(shop) {
+            assertEquals("corteya_app", jdbc.queryForObject("select current_user", String::class.java))
+            val parameters = mapOf("shop" to shop, "barber" to filter, "from" to java.sql.Timestamp.from(Instant.parse("2026-10-19T05:00:00Z")),
+                "to" to java.sql.Timestamp.from(Instant.parse("2026-10-20T05:00:00Z")))
+            val json = checkNotNull(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc).queryForObject(
+                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + com.geovannycode.corteya.booking.internal.StaffReportRepository.SUMMARY_SQL,
+                parameters, String::class.java))
+            java.nio.file.Files.writeString(output.resolve("explain-$role.json"), json)
+            val nodes = planNodes(mapper.readTree(json).first().path("Plan"))
+            val indexes = nodes.mapNotNull { it.path("Index Name").takeIf { value -> value.isString }?.asString() }.toSet()
+            assertTrue(indexes.containsAll(expectedIndexes), "Missing indexes for $role: ${expectedIndexes - indexes}; plan: $json")
+            val tenantTables = setOf("appointment", "deposit_payment", "deposit_event")
+            assertFalse(nodes.any { it.path("Relation Name").asString("") in tenantTables && it.path("Node Type").asString() == "Seq Scan" && it.path("Actual Loops").asLong() > 0 }, json)
+            val visited = nodes.sumOf { (it.path("Actual Rows").asLong() + it.path("Rows Removed by Filter").asLong()) * it.path("Actual Loops").asLong() }
+            assertTrue(visited < 500, "Plan visited $visited rows instead of the bounded period/debt")
+        } }
+    }
+
+    @Test fun `summary only adds active barbers as zero rows while preserving inactive barber movements`() {
+        inShop(shop) { jdbc.update("update barber set active = false where barbershop_id = ? and id = ?", shop, secondBarber) }
+        val path = "/api/v1/barbershops/staff-a/staff/summary?period=DAY&date=2026-10-19"
+        assertEquals(1, body(http("GET", path, owner)).path("barbers").size())
+        inShop(shop) { jdbc.update("update barber set active = true where barbershop_id = ? and id = ?", shop, secondBarber) }
+        assertEquals(201, manual("2026-10-19T11:00:00-05:00", b = secondBarber).statusCode())
+        inShop(shop) { jdbc.update("update barber set active = false where barbershop_id = ? and id = ?", shop, secondBarber) }
+        val report = body(http("GET", path, owner))
+        assertEquals(2, report.path("barbers").size())
+        assertEquals(1L, report.path("metrics").path("totalAppointments").asLong())
+    }
+
+    private fun planNodes(node: JsonNode): List<JsonNode> = listOf(node) + node.path("Plans").flatMap { planNodes(it) }
+
     private fun user(phone: String) = identities.findOrCreateUser("+57$phone", now).let { identities.updateName(it.id, "Cliente"); it.copy(name = "Cliente") }
     private fun manual(time: String, b: UUID = barber, s: UUID = service, actor: AppUser = owner, phone: String? = null) =
         http("POST", "/api/v1/barbershops/staff-a/staff/appointments", actor, mapOf("barberId" to b, "serviceId" to s, "startsAt" to time, "customerName" to "Cliente manual", "customerPhone" to phone))

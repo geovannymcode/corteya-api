@@ -13,38 +13,13 @@ import org.springframework.stereotype.Repository
 
 @Repository
 class StaffReportRepository(private val jdbc: JdbcTemplate) {
-    /** Independent money and appointment aggregates avoid retry multiplication and use the relevant event date. */
-    fun summary(shop: UUID, barber: UUID?, from: Instant, to: Instant): List<Pair<UUID, StaffMetrics>> = jdbc.query(
-        """with scoped as (
-            select id, barber_id, status, price_cop, starts_at from appointment
-            where barbershop_id = ? and (?::uuid is null or barber_id = ?)
-        ), activity as (
-            select barber_id, count(*) as total, count(*) filter (where status = 'COMPLETED') as completed,
-                count(*) filter (where status = 'NO_SHOW') as no_shows,
-                coalesce(sum(price_cop) filter (where status = 'COMPLETED'), 0) as revenue
-            from scoped where starts_at >= ? and starts_at < ? group by barber_id
-        ), done_dates as (
-            select deposit_payment_id, max(created_at) as done_at from deposit_event
-            where barbershop_id = ? and to_refund_status = 'DONE' group by deposit_payment_id
-        ), money as (
-            select a.barber_id,
-                coalesce(sum(d.amount_cop) filter (where d.status in ('APPROVED','LATE_PAYMENT') and d.confirmed_at >= ? and d.confirmed_at < ?), 0) as received,
-                count(*) filter (where d.refund_status = 'PENDING') as refunds,
-                coalesce(sum(d.amount_cop) filter (where d.refund_status = 'PENDING'), 0) as refund_cop,
-                count(*) filter (where d.refund_status = 'DONE' and e.done_at >= ? and e.done_at < ?) as done,
-                coalesce(sum(d.amount_cop) filter (where d.refund_status = 'DONE' and e.done_at >= ? and e.done_at < ?), 0) as done_cop
-            from deposit_payment d join scoped a on a.id = d.appointment_id
-            left join done_dates e on e.deposit_payment_id = d.id where d.barbershop_id = ? group by a.barber_id
-        ), barbers as (select distinct barber_id from scoped)
-        select b.barber_id, coalesce(a.total,0) as total, coalesce(a.completed,0) as completed, coalesce(a.no_shows,0) as no_shows,
-            coalesce(a.revenue,0) as revenue, coalesce(m.received,0) as received, coalesce(m.refunds,0) as refunds,
-            coalesce(m.refund_cop,0) as refund_cop, coalesce(m.done,0) as done, coalesce(m.done_cop,0) as done_cop
-        from barbers b left join activity a on a.barber_id = b.barber_id left join money m on m.barber_id = b.barber_id order by b.barber_id""",
-        { r, _ -> r.getObject("barber_id", UUID::class.java) to metrics(r.getLong("total"), r.getLong("completed"),
-            r.getLong("no_shows"), r.getLong("received"), r.getLong("revenue"), r.getLong("refunds"), r.getLong("refund_cop"),
-            r.getLong("done"), r.getLong("done_cop")) },
-        shop, barber, barber, Timestamp.from(from), Timestamp.from(to), shop, Timestamp.from(from), Timestamp.from(to),
-        Timestamp.from(from), Timestamp.from(to), Timestamp.from(from), Timestamp.from(to), shop)
+    /** Each aggregate reads only its period or the current pending debt, never the full history. */
+    fun summary(shop: UUID, barber: UUID?, from: Instant, to: Instant): List<Pair<UUID, StaffMetrics>> =
+        org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc).query(SUMMARY_SQL,
+            mapOf("shop" to shop, "barber" to barber, "from" to Timestamp.from(from), "to" to Timestamp.from(to)),
+            { r, _ -> r.getObject("barber_id", UUID::class.java) to metrics(r.getLong("total"), r.getLong("completed"),
+                r.getLong("no_shows"), r.getLong("received"), r.getLong("revenue"), r.getLong("refunds"), r.getLong("refund_cop"),
+                r.getLong("done"), r.getLong("done_cop")) })
 
     fun actionItems(shop: UUID, barber: UUID?, now: Instant): List<ActionItem> = jdbc.query(
         """select d.*, a.public_token, a.barber_id, a.starts_at from deposit_payment d
@@ -60,6 +35,44 @@ class StaffReportRepository(private val jdbc: JdbcTemplate) {
             r.getString("provider_transaction_id"), r.getTimestamp("confirmed_at")?.toInstant()?.atZone(ZoneId.of("America/Bogota"))?.toOffsetDateTime()) }, shop, barber, barber, Timestamp.from(now))
 
     companion object {
+        internal const val SUMMARY_SQL = """with activity as (
+            select a.barber_id, count(*) as total, count(*) filter (where a.status = 'COMPLETED') as completed,
+                count(*) filter (where a.status = 'NO_SHOW') as no_shows,
+                coalesce(sum(a.price_cop) filter (where a.status = 'COMPLETED'), 0) as revenue
+            from appointment a where a.barbershop_id = :shop and a.starts_at >= :from and a.starts_at < :to
+                and (cast(:barber as uuid) is null or a.barber_id = :barber) group by a.barber_id
+        ), received as (
+            select a.barber_id, sum(d.amount_cop) as received from deposit_payment d
+            join appointment a on a.barbershop_id = d.barbershop_id and a.id = d.appointment_id
+            where d.barbershop_id = :shop and d.confirmed_at >= :from and d.confirmed_at < :to
+                and d.status in ('APPROVED','LATE_PAYMENT')
+                and (cast(:barber as uuid) is null or a.barber_id = :barber) group by a.barber_id
+        ), done_dates as (
+            select e.deposit_payment_id, max(e.created_at) as done_at from deposit_event e
+            where e.barbershop_id = :shop and e.to_refund_status = 'DONE' and e.created_at >= :from and e.created_at < :to
+                -- Preserve the original latest-DONE semantics if an audit contains repeated DONE events.
+                and not exists (select 1 from deposit_event later where later.barbershop_id = :shop
+                    and later.deposit_payment_id = e.deposit_payment_id and later.to_refund_status = 'DONE' and later.created_at >= :to)
+            group by e.deposit_payment_id
+        ), done as (
+            select a.barber_id, count(*) as done, sum(d.amount_cop) as done_cop from done_dates e
+            join deposit_payment d on d.barbershop_id = :shop and d.id = e.deposit_payment_id and d.refund_status = 'DONE'
+            join appointment a on a.barbershop_id = d.barbershop_id and a.id = d.appointment_id
+            where (cast(:barber as uuid) is null or a.barber_id = :barber) group by a.barber_id
+        ), pending as (
+            select a.barber_id, count(*) as refunds, sum(d.amount_cop) as refund_cop from deposit_payment d
+            join appointment a on a.barbershop_id = d.barbershop_id and a.id = d.appointment_id
+            where d.barbershop_id = :shop and d.refund_status = 'PENDING'
+                and (cast(:barber as uuid) is null or a.barber_id = :barber) group by a.barber_id
+        ), barbers as (
+            select barber_id from activity union select barber_id from received
+            union select barber_id from done union select barber_id from pending
+        ) select b.barber_id, coalesce(a.total,0) as total, coalesce(a.completed,0) as completed, coalesce(a.no_shows,0) as no_shows,
+            coalesce(a.revenue,0) as revenue, coalesce(r.received,0) as received, coalesce(p.refunds,0) as refunds,
+            coalesce(p.refund_cop,0) as refund_cop, coalesce(d.done,0) as done, coalesce(d.done_cop,0) as done_cop
+        from barbers b left join activity a on a.barber_id = b.barber_id left join received r on r.barber_id = b.barber_id
+            left join done d on d.barber_id = b.barber_id left join pending p on p.barber_id = b.barber_id order by b.barber_id"""
+
         fun metrics(total: Long, completed: Long, noShows: Long, received: Long, revenue: Long, refunds: Long, refundCop: Long, done: Long, doneCop: Long): StaffMetrics {
             val attended = completed + noShows
             val rate = if (attended == 0L) BigDecimal.ZERO.setScale(2)

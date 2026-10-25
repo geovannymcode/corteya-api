@@ -744,10 +744,18 @@ lunes y mes calendario. `metrics` y cada `barbers[].metrics` incluyen:
   marcó DONE, independiente de la fecha de cita, de pago y de posteriores actualizaciones.
 - `pendingRefunds` y `pendingRefundsCop`: deuda actual completa, sin filtro de periodo.
 
+V13 agrega índices por barbería y fecha de cita, confirmación de pago, estado de
+devolución y fecha de evento DONE. Los rangos se filtran antes de agrupar, y la deuda
+actual se consulta aparte con `refund_status = PENDING`. La prueba de integración con
+30.000 registros históricos por tabla ejecuta `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`
+como `corteya_app`, sin deshabilitar barridos secuenciales; guarda ambos planes en
+`build/reports/staff-summary/explain-owner.json` y `explain-barber.json`. Solo el
+refresco de estadísticas (`ANALYZE`) usa el dueño de Flyway, sin leer datos como owner.
+
 Los agregados se calculan en SQL, separando actividad y movimientos para que varios
 intentos de pago no multipliquen citas o facturación. BARBER recibe solo sus métricas;
-OWNER también recibe desglose de todos los barberos de la barbería, incluidos los que
-no tienen movimientos (en cero).
+OWNER también recibe desglose de los barberos activos sin movimientos (en cero),
+además de los inactivos que tengan actividad o movimientos en el resumen.
 
 `action-items` incluye identificadores de cita y señal, token, referencia, monto,
 estados, método, id de transacción del proveedor, fecha de confirmación, barbero,
