@@ -708,7 +708,10 @@ incluyen en eventos ni logs. Catálogo, clientes y pagos se cargan en lotes por 
 
 Los bloqueos requieren fin posterior al inicio. Un cruce con una cita PENDING_PAYMENT
 o CONFIRMED devuelve ProblemDetail 409 con `conflicts: [{id, publicToken, startsAt,
-endsAt}]`, sin cancelar citas. Se usa el mismo bloqueo de fila del barbero al crear
+endsAt}]`, sin cancelar citas. Antes de buscar conflictos, `ExpiredHoldCleanup` expira los holds
+vencidos de ese barbero y las señales pendientes asociadas, usando el Clock inyectado
+y la misma limpieza del flujo de cita manual, sin esperar al job.
+Se usa el mismo bloqueo de fila del barbero al crear
 bloqueos, reservar, crear manuales y confirmar señales: el orden es barbero → cita →
 pago. Así se evita la carrera entre crear un bloqueo y ocupar el horario. La
 confirmación tardía tampoco revive una cita encima de un bloqueo; registra LATE_PAYMENT.

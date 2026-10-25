@@ -9,13 +9,16 @@ import com.geovannycode.corteya.scheduling.TimeOffDetails
 import com.geovannycode.corteya.shared.ApiFailure
 import com.geovannycode.corteya.shared.TenantTransaction
 import java.time.Instant
+import java.time.Clock
+import com.geovannycode.corteya.booking.internal.ExpiredHoldCleanup
 import java.time.ZoneId
 import java.util.UUID
 import org.springframework.stereotype.Service
 
 @Service
 class StaffTimeOffService(private val guard: AuthorizationPolicy, private val tenants: TenantTransaction,
-    private val barbers: BarberDirectoryService, private val blocks: TimeOffService, private val bookings: AppointmentRepository) {
+    private val barbers: BarberDirectoryService, private val blocks: TimeOffService, private val bookings: AppointmentRepository,
+    private val expiredHolds: ExpiredHoldCleanup, private val clock: Clock) {
     fun create(user: UUID, slug: String, request: TimeOffRequest): TimeOffResponse {
         val scope = guard.agenda(user, slug, request.barberId)
         val from = request.startsAt.toInstant()
@@ -23,6 +26,7 @@ class StaffTimeOffService(private val guard: AuthorizationPolicy, private val te
         validRange(from, to)
         return tenants.execute(scope.barbershopId) {
             if (!barbers.lockSchedule(scope.barbershopId, request.barberId)) BookingFailure.notFound()
+            expiredHolds.forBarber(scope.barbershopId, request.barberId, clock.instant())
             val conflicts = bookings.agenda(scope.barbershopId, request.barberId, from, to)
                 .filter { it.status in listOf(AppointmentStatus.PENDING_PAYMENT, AppointmentStatus.CONFIRMED) }
                 .map { AppointmentConflict(it.id, it.publicToken, it.startsAt.bogota(), it.endsAt.bogota()) }

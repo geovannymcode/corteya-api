@@ -4,6 +4,7 @@ import com.geovannycode.corteya.booking.dto.*
 import com.geovannycode.corteya.booking.internal.AppointmentEntity
 import com.geovannycode.corteya.booking.internal.AppointmentRepository
 import com.geovannycode.corteya.booking.internal.DepositRepository
+import com.geovannycode.corteya.booking.internal.ExpiredHoldCleanup
 import com.geovannycode.corteya.customer.CustomerService
 import com.geovannycode.corteya.identity.AuthorizationPolicy
 import com.geovannycode.corteya.identity.PhoneNumbers
@@ -20,7 +21,8 @@ import org.springframework.stereotype.Service
 class StaffAppointmentService(private val guard: AuthorizationPolicy, private val tenants: TenantTransaction,
     private val availability: AvailabilityService, private val customers: CustomerService,
     private val bookings: AppointmentRepository, private val deposits: DepositRepository, private val blocks: TimeOffService,
-    private val codes: PaymentReferences, private val clock: Clock, private val events: ApplicationEventPublisher) {
+    private val codes: PaymentReferences, private val clock: Clock, private val events: ApplicationEventPublisher,
+    private val expiredHolds: ExpiredHoldCleanup) {
     fun manual(user: UUID, slug: String, request: ManualAppointmentRequest): StaffAppointmentResult {
         val scope = guard.agenda(user, slug, request.barberId)
         val phone = request.customerPhone?.let { PhoneNumbers.normalize(it) ?: throw ApiFailure(400, "Revisa el celular colombiano") }
@@ -32,8 +34,7 @@ class StaffAppointmentService(private val guard: AuthorizationPolicy, private va
             val to = from.plusSeconds(selection.service.durationMinutes.toLong() * 60)
             if (blocks.findOverlapping(scope.barbershopId, request.barberId, from, to).isNotEmpty())
                 throw ApiFailure(409, "El barbero tiene un bloqueo en ese horario")
-            bookings.expireForBarber(scope.barbershopId, request.barberId, now)
-            deposits.expirePending(scope.barbershopId, now)
+            expiredHolds.forBarber(scope.barbershopId, request.barberId, now)
             val customerId = customers.manualCustomer(scope.barbershopId, phone, request.customerName.trim(), now)
             val candidate = AppointmentEntity(barbershopId = scope.barbershopId, barberId = request.barberId,
                 serviceId = request.serviceId, customerId = customerId, startsAt = from, endsAt = to,

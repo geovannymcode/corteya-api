@@ -398,6 +398,28 @@ class StaffModeIntegrationTests : PostgresIntegrationTest(web = true) {
 
     private fun planNodes(node: JsonNode): List<JsonNode> = listOf(node) + node.path("Plans").flatMap { planNodes(it) }
 
+    @Test fun `block cleans an expired hold and its deposit without the job and leaves another barber untouched`() {
+        val created = publicBooking()
+        val untouched = http("POST", "/api/v1/barbershops/staff-a/appointments", customer,
+            mapOf("barberId" to secondBarber, "serviceId" to service, "startsAt" to "2026-10-19T10:00:00-05:00"))
+        assertEquals(201, untouched.statusCode(), untouched.body())
+        val hold = java.time.OffsetDateTime.parse(created.path("holdExpiresAt").asString()).toInstant()
+        clock.set(hold)
+        assertEquals(409, block("10:00", "11:00").statusCode()) // expireForBarber uses strictly older than now.
+        clock.set(hold.plusSeconds(1))
+        val response = block("10:00", "11:00")
+        assertEquals(201, response.statusCode(), response.body())
+        inShop(shop) {
+            assertEquals("EXPIRED", jdbc.queryForObject("select status from appointment where barbershop_id = ? and barber_id = ?", String::class.java, shop, barber))
+            assertEquals("PENDING_PAYMENT", jdbc.queryForObject("select status from appointment where barbershop_id = ? and barber_id = ?", String::class.java, shop, secondBarber))
+            val rows = jdbc.queryForList("""select a.barber_id, d.status from deposit_payment d join appointment a
+                on a.barbershop_id = d.barbershop_id and a.id = d.appointment_id where d.barbershop_id = ?""", shop)
+            assertEquals("EXPIRED", rows.single { it["barber_id"] == barber }["status"])
+            assertEquals("PENDING", rows.single { it["barber_id"] == secondBarber }["status"])
+            assertEquals(1, jdbc.queryForObject("select count(*) from deposit_event where barbershop_id = ? and to_status = 'EXPIRED'", Int::class.java, shop))
+        }
+    }
+
     private fun user(phone: String) = identities.findOrCreateUser("+57$phone", now).let { identities.updateName(it.id, "Cliente"); it.copy(name = "Cliente") }
     private fun manual(time: String, b: UUID = barber, s: UUID = service, actor: AppUser = owner, phone: String? = null) =
         http("POST", "/api/v1/barbershops/staff-a/staff/appointments", actor, mapOf("barberId" to b, "serviceId" to s, "startsAt" to time, "customerName" to "Cliente manual", "customerPhone" to phone))
