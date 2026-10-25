@@ -37,7 +37,10 @@ class StaffReportService(private val guard: AuthorizationPolicy, private val ten
         return tenants.execute(scope.barbershopId) {
             val rows = reports.summary(scope.barbershopId, scope.barberId, from.toInstant(), to.toInstant())
             val names = barbers.findAll(scope.barbershopId).associateBy { it.id }
-            val details = rows.map { (id, metrics) -> BarberSummary(id, names.getValue(id).name, metrics) }
+            val metricsByBarber = rows.toMap()
+            val empty = StaffReportRepository.metrics(0, 0, 0, 0, 0, 0, 0, 0, 0)
+            val details = names.values.sortedWith(compareBy({ it.name }, { it.id.toString() }))
+                .map { BarberSummary(it.id, it.name, metricsByBarber[it.id] ?: empty) }
             val metrics = rows.map { it.second }
             val total = StaffReportRepository.metrics(metrics.sumOf { it.totalAppointments }, metrics.sumOf { it.completed },
                 metrics.sumOf { it.noShows }, metrics.sumOf { it.depositsReceivedCop }, metrics.sumOf { it.estimatedRevenueCop },
