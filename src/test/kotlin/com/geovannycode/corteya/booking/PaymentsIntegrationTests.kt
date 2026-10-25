@@ -515,6 +515,7 @@ class PaymentsIntegrationTests : PostgresIntegrationTest(web = true) {
         assertEquals(id, cancelledEvents.events.single().appointmentId)
         assertEquals(shop, cancelledEvents.events.single().barbershopId)
         assertEquals(now, cancelledEvents.events.single().cancelledAt)
+        assertEquals(CancellationOrigin.CLIENT, cancelledEvents.events.single().origin)
         assertEquals("PENDING_PAYMENT", create().path("status").asString())
     }
 

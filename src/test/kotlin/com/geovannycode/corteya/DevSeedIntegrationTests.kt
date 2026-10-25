@@ -25,13 +25,13 @@ class DevSeedIntegrationTests : PostgresIntegrationTest(profile = "dev") {
         inShop(UUID.fromString("10000000-0000-0000-0000-000000000001")) {
         assertEquals("BREB_MANUAL", jdbc.queryForObject("select deposit_mode from barbershop_payment_settings", String::class.java))
         assertEquals(30, jdbc.queryForObject("select hold_minutes from barbershop_payment_settings", Int::class.java))
-        assertEquals("Calle de ejemplo 123", jdbc.queryForObject("select address from barbershop", String::class.java))
-        assertEquals("Bogotá", jdbc.queryForObject("select city from barbershop", String::class.java))
-        assertEquals(14, jdbc.queryForObject("select booking_window_days from barbershop", Int::class.java))
+        assertEquals("Calle de ejemplo 123", jdbc.queryForObject("select address from barbershop where slug = 'barberia-piloto'", String::class.java))
+        assertEquals("Bogotá", jdbc.queryForObject("select city from barbershop where slug = 'barberia-piloto'", String::class.java))
+        assertEquals(14, jdbc.queryForObject("select booking_window_days from barbershop where slug = 'barberia-piloto'", Int::class.java))
         flyway.validate()
         assertEquals(0, flyway.migrate().migrationsExecuted)
-        val expected = mapOf("barbershop" to 1, "barber" to 3, "service" to 4,
-            "app_user" to 2, "staff_membership" to 2, "barber_service" to 12, "working_hours" to 18, "customer" to 0, "appointment" to 0)
+        val expected = mapOf("barbershop" to 3, "barber" to 3, "service" to 4,
+            "app_user" to 6, "staff_membership" to 6, "barber_service" to 12, "working_hours" to 18, "customer" to 0, "appointment" to 0)
         expected.forEach { (table, count) ->
             assertEquals(count, jdbc.queryForObject("select count(*) from $table", Int::class.java), table)
         }
