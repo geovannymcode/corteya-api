@@ -18,6 +18,7 @@ class DepositService(
     private val bookings: AppointmentRepository, private val gateways: List<PaymentGateway>,
     private val policy: AuthorizationPolicy, private val queries: BookingQueries,
     private val confirmation: DepositConfirmationService, private val tenants: TenantTransaction, private val clock: Clock,
+    private val barbers: com.geovannycode.corteya.catalog.BarberDirectoryService,
 ) {
     /** Called inside the appointment's transaction so booking and deposit commit together. */
     fun initialize(appointment: AppointmentEntity, configuration: PaymentSettings): PaymentInstructions? {
@@ -67,8 +68,10 @@ class DepositService(
     fun manual(user: UUID, slug: String, appointmentId: UUID, approve: Boolean) {
         val scope = policy.agenda(user, slug)
         tenants.execute(scope.barbershopId) {
+            val visible = bookings.findById(scope.barbershopId, appointmentId) ?: BookingFailure.notFound()
+            policy.requireBarber(scope, visible.barberId)
+            if (!barbers.lockSchedule(scope.barbershopId, visible.barberId)) BookingFailure.notFound()
             val a = bookings.lock(scope.barbershopId, appointmentId) ?: BookingFailure.notFound()
-            if (scope.barberId != null && a.barberId != scope.barberId) BookingFailure.notFound()
             val p = deposits.latest(a.barbershopId, a.id)?.takeIf { it.method == DepositMode.BREB_MANUAL } ?: BookingFailure.notFound()
             if (approve) confirmation.confirm(a.barbershopId, p.id, DepositEventSource.STAFF, user)
             else if (a.status in listOf(AppointmentStatus.PENDING_PAYMENT, AppointmentStatus.EXPIRED) &&

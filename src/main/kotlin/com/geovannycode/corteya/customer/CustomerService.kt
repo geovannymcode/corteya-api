@@ -7,6 +7,8 @@ import java.util.UUID
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
 
+data class CustomerDetails(val id: UUID, val name: String, val phone: String?)
+
 /** Ownership, verified account linking and anonymization stay with the customer feature. */
 @Service
 class CustomerService(private val jdbc: JdbcTemplate, private val tenants: TenantTransaction) {
@@ -19,6 +21,19 @@ class CustomerService(private val jdbc: JdbcTemplate, private val tenants: Tenan
                 returning id""",
             UUID::class.java, UUID.randomUUID(), barbershopId, phone, name, userId, Timestamp.from(now), Timestamp.from(now),
         ))
+
+    fun manualCustomer(shop: UUID, phone: String?, name: String, now: Instant): UUID = checkNotNull(jdbc.queryForObject(
+        """insert into customer (id, barbershop_id, phone, name, created_at, updated_at) values (?, ?, ?, ?, ?, ?)
+            on conflict (barbershop_id, phone) do update set phone = customer.phone returning id""",
+        UUID::class.java, UUID.randomUUID(), shop, phone, name, Timestamp.from(now), Timestamp.from(now)))
+
+    fun details(shop: UUID, ids: List<UUID>): Map<UUID, CustomerDetails> {
+        if (ids.isEmpty()) return emptyMap()
+        val placeholders = ids.joinToString(",") { "?" }
+        return jdbc.query("select id, name, phone from customer where barbershop_id = ? and id in ($placeholders)",
+            { r, _ -> CustomerDetails(r.getObject("id", UUID::class.java), r.getString("name"), r.getString("phone")) },
+            *listOf(shop, *ids.toTypedArray()).toTypedArray()).associateBy { it.id }
+    }
 
     fun linkVerifiedCustomers(userId: UUID, phone: String, barbershops: List<UUID>) {
         barbershops.forEach { id -> tenants.execute(id) {

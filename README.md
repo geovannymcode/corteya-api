@@ -64,8 +64,19 @@ docker compose -f docker-compose.yml down
 
 El perfil `dev` agrega una semilla idempotente: `barberia-piloto`, tres barberos, cuatro
 servicios y horarios lunes–sábado 09:00–18:00 locales; no crea clientes ni citas.
-También agrega un OWNER (`3000000001`) y un BARBER (`3000000002`, asociado al primer
-barbero). Son números sintéticos de desarrollo: usa el emisor de log para probarlos.
+También agrega `barberia-breb` y `barberia-libre`, cada una con su propio barbero,
+servicio, horario lunes–sábado 09:00–18:00, OWNER y BARBER. Todas las identidades,
+ubicaciones, alias y números son inventados: usa exclusivamente el emisor OTP de log,
+nunca WhatsApp real para probar estos celulares.
+
+| Slug dev | Pago al arrancar | Celular OWNER | Celular BARBER |
+| --- | --- | --- | --- |
+| `barberia-piloto` | WOMPI/SANDBOX con llaves válidas; si no, BREB_MANUAL (`@DEMO`) | `3000000001` | `3000000002` |
+| `barberia-breb` | Siempre BREB_MANUAL (`@DEMOBREB`) | `3000000003` | `3000000004` |
+| `barberia-libre` | Siempre NONE | `3000000005` | `3000000006` |
+
+El BARBER piloto corresponde a Andrés. Los otros BARBER solo pertenecen a su respectiva
+barbería. La semilla no crea citas ni clientes.
 Sin `dev`, Flyway solo lee `db/migration`. Desactivar el perfil no borra datos sembrados:
 usa bases separadas. Para arrancar sin semilla usa una base vacía y `./gradlew bootRun`, con las claves y WhatsApp
 configurados como se indica abajo.
@@ -493,12 +504,17 @@ en WOMPI/SANDBOX solo cuando están presentes y no vacías las cuatro variables:
 `WOMPI_SANDBOX_PUBLIC_KEY`, `WOMPI_SANDBOX_PRIVATE_KEY`,
 `WOMPI_SANDBOX_INTEGRITY_SECRET` y `WOMPI_SANDBOX_EVENTS_SECRET`.
 También necesitas la llave maestra `PAYMENT_SECRETS_KEY`. Se validan y cifran por el
-mismo camino que el PUT del OWNER. Una configuración Wompi completa pero inválida
-impide el arranque con un error genérico, sin revelar valores.
+mismo camino que el PUT del OWNER. Si una variable es inválida o falta parte de la
+configuración, el arranque continúa en BREB_MANUAL. El WARN identifica solamente el
+nombre de la variable fallida, nunca su valor ni una excepción que pueda incluirlo.
+Una llave maestra inválida también deja el modo manual. Esta validación comprueba el
+formato local y la capacidad de cifrado; no llama a Wompi ni verifica remotamente la
+vigencia de credenciales al arrancar.
 
 Si falta alguna variable, la demo queda en BREB_MANUAL con hold de 30 minutos y un
 alias **sintético `@DEMO` que debes reemplazar antes de recibir dinero**. Cada arranque
-dev aplica esta configuración a la demo; no cambia otras barberías. Fuera de `dev`,
+dev aplica esta configuración a la piloto y restablece los modos Bre-B y NONE de las
+otras dos demos; no cambia barberías ajenas a esas tres identidades de prueba. Fuera de `dev`,
 las cuatro variables sandbox se ignoran. La llave maestra sí se usa en cualquier
 perfil que tenga comercios Wompi. `.env.example` no contiene sus valores.
 
@@ -662,6 +678,107 @@ política. Luego consulta el detalle y `/api/v1/me/appointments` con el mismo JW
 Las pruebas automatizadas cubren los tres modos, cotización sin escrituras, huecos
 inválidos, reintentos y sus bordes de vigencia, devoluciones y lectura entre barberías
 activas/inactivas, además del contrato OpenAPI y consultas de catálogo por barbería.
+
+## Modo barbero (fase 9A)
+
+Los endpoints bajo `/api/v1/barbershops/{slug}/staff` consultan membresías actuales,
+sin confiar en los roles del JWT para decidir la barbería. `AuthorizationPolicy` es
+el guard de acceso central: BARBER solo su barbero; OWNER cualquier barbero local.
+Un cliente, staff ajeno u objeto de otra barbería recibe 404. Todas las consultas llevan
+filtro explícito por `barbershop_id`, además de RLS y `TenantTransaction`.
+
+| Método y sufijo staff | Resultado |
+| --- | --- |
+| `GET /agenda?date=YYYY-MM-DD&barberId=UUID` | Agenda por día local; filtro barberId opcional solo para OWNER |
+| `POST /time-off` | `{barberId, startsAt, endsAt, reason}` → 201 con bloqueo |
+| `DELETE /time-off/{id}` | Elimina un bloqueo autorizado → 204 |
+| `GET /time-off?from=ISO&to=ISO` | Bloqueos que se cruzan con el intervalo `[from,to)` |
+| `POST /appointments` | `{barberId, serviceId, startsAt, customerName, customerPhone?}` → 201 con id y token |
+| `POST /appointments/{id}/complete` | Asistió → 204 |
+| `POST /appointments/{id}/no-show` | No asistió → 204 |
+| `POST /appointments/{id}/cancel` | `{reason}` → 204 |
+| `GET /summary?period=DAY/WEEK/MONTH&date=YYYY-MM-DD` | Totales propios o totales y desglose por barbero para OWNER |
+| `GET /action-items` | `pendingBreB`, `latePayments`, `pendingRefunds` |
+
+La agenda conserva `barberId`, `serviceId` y el objeto `appointment` anterior, y agrega
+`id`, `serviceName`, `barberName`, `startsAt`, `endsAt`, `status`, `source`,
+`depositStatus`, `refundStatus`, `customerName` y `customerPhone` (E.164 o null si no
+hay celular o se anonimizó). Solo el staff autorizado recibe esos contactos; no se
+incluyen en eventos ni logs. Catálogo, clientes y pagos se cargan en lotes por barbería.
+
+Los bloqueos requieren fin posterior al inicio. Un cruce con una cita PENDING_PAYMENT
+o CONFIRMED devuelve ProblemDetail 409 con `conflicts: [{id, publicToken, startsAt,
+endsAt}]`, sin cancelar citas. Antes de buscar conflictos, `ExpiredHoldCleanup` expira los holds
+vencidos de ese barbero y las señales pendientes asociadas, usando el Clock inyectado
+y la misma limpieza del flujo de cita manual, sin esperar al job.
+Se usa el mismo bloqueo de fila del barbero al crear
+bloqueos, reservar, crear manuales y confirmar señales: el orden es barbero → cita →
+pago. Así se evita la carrera entre crear un bloqueo y ocupar el horario. La
+confirmación tardía tampoco revive una cita encima de un bloqueo; registra LATE_PAYMENT.
+La disponibilidad pública refleja los bloqueos en la siguiente consulta.
+
+Una cita manual usa duración y precio del catálogo, nace CONFIRMED/MANUAL, sin señal ni
+hold y sin requerir configuración de pagos. Permite horarios fuera de grilla, jornada
+y anticipación mínima; conserva la prohibición de cruzar citas (exclusion constraint)
+y bloqueos. Un celular opcional se normaliza a E.164 colombiano y reutiliza el cliente
+local sin modificar una identidad verificada. Sin celular se crea un cliente sin cuenta.
+
+La asistencia solo cambia citas CONFIRMED. COMPLETED se permite desde exactamente 15
+minutos antes del inicio; NO_SHOW estrictamente después del inicio. Repetir la misma
+acción devuelve 204 sin duplicar eventos. NO_SHOW deja FORFEITED cualquier señal aprobada,
+con `deposit_event` y el staff actor. Cancelar por imprevisto deja CANCELLED; anula los
+pagos pendientes y toda señal recibida queda con devolución PENDING, sin aplicar la
+penalización del cliente. V12 guarda motivo y origen de la cancelación en la cita.
+Los eventos `AppointmentCompleted`, `AppointmentNoShow` y `AppointmentCancelled` se
+publican en la transacción; consumidores de fase 5 deben escuchar AFTER_COMMIT.
+`AppointmentCancelled.origin` distingue CLIENT/STAFF; para STAFF su motivo público es
+«cancelada por la barbería», sin incluir el texto libre del staff en el evento.
+
+El resumen usa días de Bogotá y periodos semiabiertos `[from,to)`, semana ISO desde
+lunes y mes calendario. `metrics` y cada `barbers[].metrics` incluyen:
+
+- `totalAppointments`, `completed`, `noShows` y `estimatedRevenueCop`: por inicio local de
+  la cita. Facturación estimada suma `price_cop` solo de COMPLETED.
+- `noShowRate`: porcentaje NO_SHOW / (COMPLETED + NO_SHOW), con dos decimales; cero si
+  no hay ninguna de esas citas. Canceladas y citas pendientes/confirmadas no cuentan.
+- `depositsReceivedCop`: pagos APPROVED o LATE_PAYMENT por `confirmed_at` local, aunque
+  su cita sea de otro periodo. Una devolución no borra el ingreso bruto original.
+- `completedRefunds` y `completedRefundsCop`: por la fecha del evento de auditoría que
+  marcó DONE, independiente de la fecha de cita, de pago y de posteriores actualizaciones.
+- `pendingRefunds` y `pendingRefundsCop`: deuda actual completa, sin filtro de periodo.
+
+V13 agrega índices por barbería y fecha de cita, confirmación de pago, estado de
+devolución y fecha de evento DONE. Los rangos se filtran antes de agrupar, y la deuda
+actual se consulta aparte con `refund_status = PENDING`. La prueba de integración con
+30.000 registros históricos por tabla ejecuta `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`
+como `corteya_app`, sin deshabilitar barridos secuenciales; guarda ambos planes en
+`build/reports/staff-summary/explain-owner.json` y `explain-barber.json`. Solo el
+refresco de estadísticas (`ANALYZE`) usa el dueño de Flyway, sin leer datos como owner.
+
+Los agregados se calculan en SQL, separando actividad y movimientos para que varios
+intentos de pago no multipliquen citas o facturación. BARBER recibe solo sus métricas;
+OWNER también recibe desglose de los barberos activos sin movimientos (en cero),
+además de los inactivos que tengan actividad o movimientos en el resumen.
+
+`action-items` incluye identificadores de cita y señal, token, referencia, monto,
+estados, método, id de transacción del proveedor, fecha de confirmación, barbero,
+servicio y contacto del cliente. Bre-B pendiente incluye solo holds vigentes; los
+pagos tardíos y las devoluciones no se limitan a un periodo. Se resuelven con los
+endpoints existentes de confirmar/rechazar señal o marcar devolución. Para un
+LATE_PAYMENT de una cita EXPIRED, el staff puede cancelarla dejando devolución PENDING;
+tras devolver el dinero por el medio correspondiente, marca `deposit/refunded` y el
+pago deja de aparecer como pendiente. No se ejecutan reembolsos automáticos.
+Las lecturas autenticadas y respuestas de creación usan `Cache-Control: no-store`.
+
+Para probar manualmente, inicia sesión como uno de los BARBER demo usando OTP por log:
+crea una cita manual «ahora», comprueba su agenda, marca asistencia en el límite permitido,
+crea/elimina un bloqueo futuro y consulta disponibilidad pública. Con OWNER comprueba el
+filtro por barbero, resumen y pendientes. Con un cliente o staff de otro slug, comprueba 404.
+El OpenAPI generado en `/v3/api-docs` incluye todos estos endpoints.
+
+CodeRabbit tiene `reviews.pre_merge_checks.docstrings.mode: "off"`, verificado contra
+el [schema oficial](https://coderabbit.ai/integrations/schema.v2.json). El resto de
+revisiones permanece habilitado.
 
 ## Pruebas
 

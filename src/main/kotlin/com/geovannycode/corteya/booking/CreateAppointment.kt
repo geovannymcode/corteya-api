@@ -36,6 +36,7 @@ class CreateAppointment(
     private fun createInTenant(slug: String, command: CreateAppointmentCommand): CreatedBooking {
         val selection = availability.select(slug, command.barberId, command.serviceId)
         val (shop, barber, service) = selection
+        availability.lockSchedule(selection)
         val customer = policy.bookingCustomer(command.userId)
         val phone = checkNotNull(customer.phone)
         val name = checkNotNull(customer.name)
